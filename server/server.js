@@ -11,9 +11,21 @@ app.use(cors());
 app.use(express.json());
 
 const PORT = 3001;
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const SPREADSHEET_ID = '1eKT8w50eN9hkuRq_Whg2gW7bHk0q3onRORC7Cmxd3tY'; // Replace with your actual ID
+const OPENAI_KEY = process.env.OPENAI_KEY;
+const SPREADSHEET_ID = '1eKT8w50eN9hkuRq_Whg2gW7bHk0q3onRORC7Cmxd3tY';
 const DISCORD_TOKEN = process.env.DISCORD_BOT_TOKEN;
+
+// UPDATED: Use Instagram User Access Token instead of Page token
+const IG_USER_ACCESS_TOKEN = process.env.INSTAGRAM_USER_ACCESS_TOKEN;
+const IG_VERIFY_TOKEN = process.env.INSTAGRAM_VERIFY_TOKEN;
+
+// Verify token is loaded
+if (IG_USER_ACCESS_TOKEN) {
+  console.log('✅ Instagram User token loaded, length:', IG_USER_ACCESS_TOKEN.length);
+  console.log('   First 20 chars:', IG_USER_ACCESS_TOKEN.substring(0, 20));
+} else {
+  console.warn('⚠️ INSTAGRAM_USER_ACCESS_TOKEN not found in .env');
+}
 
 // --- GOOGLE SHEETS AUTH ---
 const auth = new google.auth.GoogleAuth({
@@ -23,7 +35,6 @@ const auth = new google.auth.GoogleAuth({
 const sheets = google.sheets({ version: 'v4', auth });
 
 // --- DISCORD CLIENT SETUP ---
-// We need Partials.Channel to receive DMs from users the bot hasn't met in a server yet
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -34,8 +45,6 @@ const client = new Client({
 });
 
 // --- CORE LOGIC (REUSABLE) ---
-// This function handles the AI analysis and Sheets updates.
-// It returns a string summary of what happened.
 async function processUserMessage(userInput) {
   try {
     // 1. Fetch current data
@@ -74,7 +83,7 @@ async function processUserMessage(userInput) {
 
     const aiRes = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${OPENAI_API_KEY}` },
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${OPENAI_KEY}` },
       body: JSON.stringify({
         model: "gpt-3.5-turbo",
         messages: [{ role: "user", content: prompt }],
@@ -83,6 +92,12 @@ async function processUserMessage(userInput) {
     });
 
     const aiJson = await aiRes.json();
+
+    if (!aiRes.ok || !aiJson.choices) {
+      console.error("❌ OpenAI API Error:", JSON.stringify(aiJson, null, 2));
+      throw new Error(`OpenAI Error: ${aiJson.error?.message || 'Unknown error'}`);
+    }
+
     const responseText = aiJson.choices[0].message.content;
     const jsonMatch = responseText.match(/\{[\s\S]*\}/);
 
@@ -111,7 +126,7 @@ async function processUserMessage(userInput) {
         const isDuplicate = issues.some(i => i.issue.toLowerCase() === action.issue.toLowerCase());
         if (!isDuplicate) {
           const newId = issues.length > 0 ? Math.max(...issues.map(i => i.id)) + 1 : 1;
-          issues.push({ id: newId }); // prevent local dupes
+          issues.push({ id: newId });
           await sheets.spreadsheets.values.append({
             spreadsheetId: SPREADSHEET_ID,
             range: 'Issues!A:E',
@@ -155,10 +170,45 @@ async function processUserMessage(userInput) {
   }
 }
 
+// --- INSTAGRAM HELPER FUNCTION (UPDATED FOR INSTAGRAM LOGIN API) ---
+async function sendInstagramMessage(recipientId, text) {
+  if (!IG_USER_ACCESS_TOKEN) {
+    throw new Error('INSTAGRAM_USER_ACCESS_TOKEN is not set in .env');
+  }
+
+  // UPDATED: Changed host from graph.facebook.com to graph.instagram.com
+  const url = `https://graph.instagram.com/v21.0/me/messages`;
+  
+  const payload = {
+    recipient: { id: recipientId },
+    message: { text: text },
+  };
+
+  console.log('🔍 Sending to Instagram API (graph.instagram.com)...');
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${IG_USER_ACCESS_TOKEN}`
+    },
+    body: JSON.stringify(payload),
+  });
+
+  const result = await response.json();
+  
+  if (!response.ok) {
+    console.error('❌ Instagram API Error:', JSON.stringify(result, null, 2));
+    throw new Error(`Failed to send message: ${result.error?.message || 'Unknown error'}`);
+  }
+  
+  console.log('✅ Instagram message sent successfully');
+  return result;
+}
+
 // --- EXPRESS ROUTES (WEBSITE) ---
 
 app.get('/api/data', async (req, res) => {
-  // ... (Same as your previous code) ...
   try {
     const issuesRes = await sheets.spreadsheets.values.get({ spreadsheetId: SPREADSHEET_ID, range: 'Issues!A2:E' });
     const questionsRes = await sheets.spreadsheets.values.get({ spreadsheetId: SPREADSHEET_ID, range: 'Questions!A2:E' });
@@ -177,7 +227,6 @@ app.get('/api/data', async (req, res) => {
 
 app.post('/api/analyze', async (req, res) => {
   try {
-    // We now reuse the core logic function
     const summary = await processUserMessage(req.body.voiceInput);
     res.json({ success: true, message: summary });
   } catch (error) {
@@ -186,7 +235,6 @@ app.post('/api/analyze', async (req, res) => {
 });
 
 app.post('/api/answer', async (req, res) => {
-    // ... (Same as your previous code) ...
     const { id, answer } = req.body;
     const questionsRes = await sheets.spreadsheets.values.get({ spreadsheetId: SPREADSHEET_ID, range: 'Questions!A2:E' });
     const questions = (questionsRes.data.values || []).map(row => ({ id: parseInt(row[0]) }));
@@ -205,6 +253,67 @@ app.post('/api/answer', async (req, res) => {
     }
 });
 
+// --- INSTAGRAM WEBHOOK ROUTES ---
+
+// 1. Verification (GET)
+app.get('/api/instagram/webhook', (req, res) => {
+  const mode = req.query['hub.mode'];
+  const token = req.query['hub.verify_token'];
+  const challenge = req.query['hub.challenge'];
+
+  if (mode === 'subscribe' && token === IG_VERIFY_TOKEN) {
+    console.log('✅ Instagram Webhook Verified');
+    res.status(200).send(challenge);
+  } else {
+    res.sendStatus(403);
+  }
+});
+
+// 2. Receiving Messages (POST)
+app.post('/api/instagram/webhook', async (req, res) => {
+  const body = req.body;
+
+  console.log('📩 Incoming Webhook Payload:', JSON.stringify(body, null, 2));
+
+  if (body.object === 'instagram') {
+    res.status(200).send('EVENT_RECEIVED');
+
+    body.entry?.forEach(async (entry) => {
+      try {
+        const messagingEvent = entry.messaging?.[0];
+
+        if (messagingEvent.message && messagingEvent.message.is_echo) {
+            console.log("🦋 Skipping echo message");
+            return;
+        }
+
+        if (!messagingEvent.message || !messagingEvent.message.text) {
+            console.log("ℹ️ Skipping non-text event (like a read receipt)");
+            return;
+        }
+        
+        if (messagingEvent?.message?.text) {
+          const senderId = messagingEvent.sender.id;
+          const userInput = messagingEvent.message.text;
+
+          console.log(`💬 Processing message from ${senderId}: ${userInput}`);
+
+          const summary = await processUserMessage(userInput);
+          
+          console.log(`📤 Attempting to send reply to ${senderId}`);
+          await sendInstagramMessage(senderId, `✅ Nobis Update\n${summary}`);
+          console.log(`✅ Reply sent successfully`);
+        }
+      } catch (err) {
+        console.error("❌ Error processing entry:", err);
+        console.error("❌ Full error:", err.stack);
+      }
+    });
+  } else {
+    res.sendStatus(404);
+  }
+});
+
 // --- DISCORD EVENT LISTENERS ---
 
 client.once('ready', () => {
@@ -212,25 +321,30 @@ client.once('ready', () => {
 });
 
 client.on('messageCreate', async (message) => {
-  // Ignore messages from bots (including itself)
   if (message.author.bot) return;
 
-  // Check if it's a DM (Direct Message)
-  // ChannelType.DM is usually 1
   if (message.channel.type === ChannelType.DM) {
-    
-    // Optional: Send a "Thinking..." indicator
     await message.channel.sendTyping();
 
     try {
       const summary = await processUserMessage(message.content);
-      
-      // Reply to the user on Discord
       await message.reply(`✅ **Received.**\n${summary}\n\nYou can view the dashboard here: http://localhost:3000`);
-      
     } catch (error) {
       await message.reply("❌ Sorry, I had trouble processing that request. Please try again later.");
     }
+  }
+});
+
+// --- TOKEN DEBUG ENDPOINT ---
+app.get('/api/debug-token', async (req, res) => {
+  try {
+    const response = await fetch(`https://graph.facebook.com/v21.0/me?access_token=${IG_USER_ACCESS_TOKEN}`);
+    const data = await response.json();
+    
+    console.log('🔍 Token Debug Info:', JSON.stringify(data, null, 2));
+    res.json(data);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
   }
 });
 
@@ -238,7 +352,6 @@ client.on('messageCreate', async (message) => {
 app.listen(PORT, () => {
   console.log(`🚀 Express API running on port ${PORT}`);
   
-  // Start Discord Bot only if token is present
   if (DISCORD_TOKEN) {
     client.login(DISCORD_TOKEN);
   } else {

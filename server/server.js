@@ -2,7 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const fetch = require('node-fetch');
-const { google } = require('googleapis');
+const mysql = require('mysql2/promise');
 const { Client, GatewayIntentBits, Partials, ChannelType } = require('discord.js');
 
 // --- SETUP ---
@@ -12,62 +12,45 @@ app.use(express.json());
 
 const PORT = 3001;
 const OPENAI_KEY = process.env.OPENAI_KEY;
-const SPREADSHEET_ID = '1eKT8w50eN9hkuRq_Whg2gW7bHk0q3onRORC7Cmxd3tY';
 const DISCORD_TOKEN = process.env.DISCORD_BOT_TOKEN;
-
-// UPDATED: Use Instagram User Access Token instead of Page token
 const IG_USER_ACCESS_TOKEN = process.env.INSTAGRAM_USER_ACCESS_TOKEN;
 const IG_VERIFY_TOKEN = process.env.INSTAGRAM_VERIFY_TOKEN;
 
-// Verify token is loaded
-if (IG_USER_ACCESS_TOKEN) {
-  console.log('✅ Instagram User token loaded, length:', IG_USER_ACCESS_TOKEN.length);
-  console.log('   First 20 chars:', IG_USER_ACCESS_TOKEN.substring(0, 20));
-} else {
-  console.warn('⚠️ INSTAGRAM_USER_ACCESS_TOKEN not found in .env');
-}
-
-// --- GOOGLE SHEETS AUTH ---
-const auth = new google.auth.GoogleAuth({
-  keyFile: 'service-account.json',
-  scopes: ['https://www.googleapis.com/auth/spreadsheets'],
-});
-const sheets = google.sheets({ version: 'v4', auth });
-
-// --- DISCORD CLIENT SETUP ---
-const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.DirectMessages,
-    GatewayIntentBits.MessageContent
-  ],
-  partials: [Partials.Channel] 
+// --- MYSQL CONNECTION POOL ---
+const pool = mysql.createPool({
+  host: process.env.DB_HOST || 'localhost',
+  user: process.env.DB_USER || 'root',
+  password: process.env.DB_PASSWORD || '',
+  database: process.env.DB_NAME || 'nobis_db',
+  waitForConnections: true,
+  connectionLimit: 10,
+  queueLimit: 0
 });
 
 // --- CORE LOGIC (REUSABLE) ---
 async function processUserMessage(userInput) {
   try {
-    // 1. Fetch current data
-    const issuesRes = await sheets.spreadsheets.values.get({ spreadsheetId: SPREADSHEET_ID, range: 'Issues!A2:E' });
-    const questionsRes = await sheets.spreadsheets.values.get({ spreadsheetId: SPREADSHEET_ID, range: 'Questions!A2:E' });
-
-    const issues = (issuesRes.data.values || []).map(row => ({
-      id: parseInt(row[0]), category: row[1], issue: row[2], count: parseInt(row[3])
-    }));
-
-    const questions = (questionsRes.data.values || []).map(row => ({
-      id: parseInt(row[0]), question: row[1], askedCount: parseInt(row[2])
-    }));
+    // 1. Fetch current data from MySQL for AI context
+    const [issues] = await pool.query('SELECT id, issue FROM issues');
+    const [questions] = await pool.query('SELECT id, question FROM questions');
 
     // 2. AI Prompt
     const prompt = `
       CONTEXT:
-      Existing Issues: ${JSON.stringify(issues.map(i => ({id: i.id, issue: i.issue})))}
-      Existing Questions: ${JSON.stringify(questions.map(q => ({id: q.id, question: q.question})))}
+      Existing Issues: ${JSON.stringify(issues)}
+      Existing Questions: ${JSON.stringify(questions)}
       
       INPUT: "${userInput}"
       
       TASK: Return a JSON object with an "actions" array.
+      
+      CLASSIFICATION HIERARCHY:
+      1. QUESTION PRIORITY: If the input starts with or contains interrogative words (Who, What, Where, Why, How, "Plans to", "Will you"), it MUST be classified as a question.
+      2. MATCHING: Check strictly against Existing lists. Return { type: "match_issue", id: <id> } or { type: "match_question", id: <id> }.
+      3. NEW QUESTION: If it's a request for information or a strategy, return { type: "new_question", question: <Summarized Question> }.
+      4. NEW ISSUE: If the input is purely a complaint or statement of fact about a problem without asking "how" or "why", return { type: "new_issue", category: <Select from Categories>, issue: <Title> }.
+      
+      FORMAT: Return ONLY valid JSON.
       
       RULES:
       1. ATOMIC SPLITTING: Split complex inputs into multiple distinct actions.
@@ -76,285 +59,145 @@ async function processUserMessage(userInput) {
          Return { type: "new_issue", category: <Select from Categories>, issue: <Title> }.
       4. NEW QUESTION: If the user asks for a plan/strategy (Who/What/Where/Why/How). 
          Return { type: "new_question", question: <Summarized Question> }.
-         ***IMPORTANT: Do NOT assign a Category to Questions.***
 
-      CATEGORIES (For Issues Only): Infrastructure, Public Safety, Education, Taxes, Healthcare, Environment.
+      CATEGORIES (Issues Only): Infrastructure, Public Safety, Education, Taxes, Healthcare, Environment.
     `;
 
     const aiRes = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${OPENAI_KEY}` },
       body: JSON.stringify({
-        model: "gpt-3.5-turbo",
-        messages: [{ role: "user", content: prompt }],
-        temperature: 0.1
+        model: "gpt-4o-mini", // Upgraded model
+        messages: [
+          { role: "system", content: "You are a data classifier that only outputs JSON." },
+          { role: "user", content: prompt }
+        ],
+        response_format: { type: "json_object" }, // Forces valid JSON output
+        temperature: 0 // Absolute minimum randomness
       })
     });
 
     const aiJson = await aiRes.json();
+    if (!aiRes.ok) throw new Error(`OpenAI Error: ${aiJson.error?.message}`);
 
-    if (!aiRes.ok || !aiJson.choices) {
-      console.error("❌ OpenAI API Error:", JSON.stringify(aiJson, null, 2));
-      throw new Error(`OpenAI Error: ${aiJson.error?.message || 'Unknown error'}`);
-    }
-
-    const responseText = aiJson.choices[0].message.content;
-    const jsonMatch = responseText.match(/\{[\s\S]*\}/);
-
-    if (!jsonMatch) throw new Error("AI did not return JSON");
-    const result = JSON.parse(jsonMatch[0]);
+    const result = JSON.parse(aiJson.choices[0].message.content);
     const actions = result.actions || [];
-    
     let summaryLog = [];
 
-    // 3. Process Actions
+    // 3. Process Actions in MySQL
     for (const action of actions) {
       if (action.type === 'match_issue') {
-        const index = issues.findIndex(i => i.id === action.id);
-        if (index !== -1) {
-          const newCount = issues[index].count + 1;
-          await sheets.spreadsheets.values.update({
-            spreadsheetId: SPREADSHEET_ID,
-            range: `Issues!D${index + 2}`,
-            valueInputOption: 'RAW',
-            resource: { values: [[newCount]] }
-          });
-          summaryLog.push(`Upvoted existing issue: ID #${action.id}`);
-        }
+        await pool.query('UPDATE issues SET count = count + 1 WHERE id = ?', [action.id]);
+        summaryLog.push(`Upvoted existing issue: ID #${action.id}`);
       } 
       else if (action.type === 'new_issue') {
-        const isDuplicate = issues.some(i => i.issue.toLowerCase() === action.issue.toLowerCase());
-        if (!isDuplicate) {
-          const newId = issues.length > 0 ? Math.max(...issues.map(i => i.id)) + 1 : 1;
-          issues.push({ id: newId });
-          await sheets.spreadsheets.values.append({
-            spreadsheetId: SPREADSHEET_ID,
-            range: 'Issues!A:E',
-            valueInputOption: 'RAW',
-            resource: { values: [[newId, action.category, action.issue, 1, 'New']] }
-          });
-          summaryLog.push(`Created new issue: "${action.issue}"`);
-        }
+        await pool.query('INSERT INTO issues (category, issue, count, trend) VALUES (?, ?, 1, "New")', 
+          [action.category, action.issue]);
+        summaryLog.push(`Created new issue: "${action.issue}"`);
       }
       else if (action.type === 'match_question') {
-        const index = questions.findIndex(q => q.id === action.id);
-        if (index !== -1) {
-          const newCount = questions[index].askedCount + 1;
-          await sheets.spreadsheets.values.update({
-            spreadsheetId: SPREADSHEET_ID,
-            range: `Questions!C${index + 2}`,
-            valueInputOption: 'RAW',
-            resource: { values: [[newCount]] }
-          });
-          summaryLog.push(`Upvoted existing question: ID #${action.id}`);
-        }
+        await pool.query('UPDATE questions SET asked_count = asked_count + 1 WHERE id = ?', [action.id]);
+        summaryLog.push(`Upvoted existing question: ID #${action.id}`);
       }
       else if (action.type === 'new_question') {
-        const newId = questions.length > 0 ? Math.max(...questions.map(q => q.id)) + 1 : 1;
-        questions.push({ id: newId });
-        await sheets.spreadsheets.values.append({
-          spreadsheetId: SPREADSHEET_ID,
-          range: 'Questions!A:E',
-          valueInputOption: 'RAW',
-          resource: { values: [[newId, action.question, 1, 'FALSE', '']] }
-        });
+        await pool.query('INSERT INTO questions (question, asked_count, answered) VALUES (?, 1, FALSE)', 
+          [action.question]);
         summaryLog.push(`Submitted new question: "${action.question}"`);
       }
     }
 
-    return summaryLog.length > 0 ? summaryLog.join('\n') : "I heard you, but didn't detect a specific issue or question to log.";
-
+    return summaryLog.length > 0 ? summaryLog.join('\n') : "I heard you, but didn't detect a specific issue or question.";
   } catch (error) {
     console.error("Processing Error:", error);
     throw new Error('Processing failed');
   }
 }
 
-// --- INSTAGRAM HELPER FUNCTION (UPDATED FOR INSTAGRAM LOGIN API) ---
+// --- INSTAGRAM HELPER ---
 async function sendInstagramMessage(recipientId, text) {
-  if (!IG_USER_ACCESS_TOKEN) {
-    throw new Error('INSTAGRAM_USER_ACCESS_TOKEN is not set in .env');
-  }
-
-  // UPDATED: Changed host from graph.facebook.com to graph.instagram.com
+  if (!IG_USER_ACCESS_TOKEN) return;
   const url = `https://graph.instagram.com/v21.0/me/messages`;
-  
-  const payload = {
-    recipient: { id: recipientId },
-    message: { text: text },
-  };
-
-  console.log('🔍 Sending to Instagram API (graph.instagram.com)...');
-
-  const response = await fetch(url, {
+  await fetch(url, {
     method: 'POST',
-    headers: { 
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${IG_USER_ACCESS_TOKEN}`
-    },
-    body: JSON.stringify(payload),
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${IG_USER_ACCESS_TOKEN}` },
+    body: JSON.stringify({ recipient: { id: recipientId }, message: { text: text } }),
   });
-
-  const result = await response.json();
-  
-  if (!response.ok) {
-    console.error('❌ Instagram API Error:', JSON.stringify(result, null, 2));
-    throw new Error(`Failed to send message: ${result.error?.message || 'Unknown error'}`);
-  }
-  
-  console.log('✅ Instagram message sent successfully');
-  return result;
 }
 
-// --- EXPRESS ROUTES (WEBSITE) ---
+// --- EXPRESS ROUTES ---
 
+// GET: All Dashboard Data
 app.get('/api/data', async (req, res) => {
   try {
-    const issuesRes = await sheets.spreadsheets.values.get({ spreadsheetId: SPREADSHEET_ID, range: 'Issues!A2:E' });
-    const questionsRes = await sheets.spreadsheets.values.get({ spreadsheetId: SPREADSHEET_ID, range: 'Questions!A2:E' });
+    const [issues] = await pool.query('SELECT * FROM issues ORDER BY count DESC');
+    const [rawQuestions] = await pool.query('SELECT * FROM questions ORDER BY asked_count DESC');
 
-    const issues = (issuesRes.data.values || []).map(row => ({
-      id: parseInt(row[0]), category: row[1], issue: row[2], count: parseInt(row[3]), trend: row[4]
-    }));
-
-    const questions = (questionsRes.data.values || []).map(row => ({
-      id: parseInt(row[0]), question: row[1], askedCount: parseInt(row[2]), answered: row[3] === 'TRUE', answer: row[4] || ''
+    // Map MySQL snake_case to Frontend camelCase
+    const questions = rawQuestions.map(q => ({
+      id: q.id,
+      question: q.question,
+      askedCount: q.asked_count,
+      answered: Boolean(q.answered),
+      answer: q.answer || ''
     }));
 
     res.json({ issues, questions });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// POST: Analyze input from Website
 app.post('/api/analyze', async (req, res) => {
   try {
     const summary = await processUserMessage(req.body.voiceInput);
     res.json({ success: true, message: summary });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
+  } catch (error) { res.status(500).json({ error: error.message }); }
 });
 
+// POST: Official Answer from Admin
 app.post('/api/answer', async (req, res) => {
     const { id, answer } = req.body;
-    const questionsRes = await sheets.spreadsheets.values.get({ spreadsheetId: SPREADSHEET_ID, range: 'Questions!A2:E' });
-    const questions = (questionsRes.data.values || []).map(row => ({ id: parseInt(row[0]) }));
-    
-    const index = questions.findIndex(q => q.id === id);
-    if (index !== -1) {
-      await sheets.spreadsheets.values.update({
-        spreadsheetId: SPREADSHEET_ID,
-        range: `Questions!D${index + 2}:E${index + 2}`,
-        valueInputOption: 'RAW',
-        resource: { values: [['TRUE', answer]] }
-      });
+    try {
+      await pool.query('UPDATE questions SET answered = TRUE, answer = ? WHERE id = ?', [answer, id]);
       res.json({ success: true });
-    } else {
-      res.status(404).json({ error: 'Question not found' });
-    }
+    } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// --- INSTAGRAM WEBHOOK ROUTES ---
-
-// 1. Verification (GET)
+// --- INSTAGRAM WEBHOOKS ---
 app.get('/api/instagram/webhook', (req, res) => {
-  const mode = req.query['hub.mode'];
-  const token = req.query['hub.verify_token'];
-  const challenge = req.query['hub.challenge'];
-
-  if (mode === 'subscribe' && token === IG_VERIFY_TOKEN) {
-    console.log('✅ Instagram Webhook Verified');
-    res.status(200).send(challenge);
-  } else {
-    res.sendStatus(403);
-  }
+  if (req.query['hub.verify_token'] === IG_VERIFY_TOKEN) res.send(req.query['hub.challenge']);
+  else res.sendStatus(403);
 });
 
-// 2. Receiving Messages (POST)
 app.post('/api/instagram/webhook', async (req, res) => {
   const body = req.body;
-
-  console.log('📩 Incoming Webhook Payload:', JSON.stringify(body, null, 2));
-
   if (body.object === 'instagram') {
     res.status(200).send('EVENT_RECEIVED');
-
-    body.entry?.forEach(async (entry) => {
-      try {
-        const messagingEvent = entry.messaging?.[0];
-
-        if (messagingEvent.message && messagingEvent.message.is_echo) {
-            console.log("🦋 Skipping echo message");
-            return;
-        }
-
-        if (!messagingEvent.message || !messagingEvent.message.text) {
-            console.log("ℹ️ Skipping non-text event (like a read receipt)");
-            return;
-        }
-        
-        if (messagingEvent?.message?.text) {
-          const senderId = messagingEvent.sender.id;
-          const userInput = messagingEvent.message.text;
-
-          console.log(`💬 Processing message from ${senderId}: ${userInput}`);
-
-          const summary = await processUserMessage(userInput);
-          
-          console.log(`📤 Attempting to send reply to ${senderId}`);
-          await sendInstagramMessage(senderId, `✅ Nobis Update\n${summary}`);
-          console.log(`✅ Reply sent successfully`);
-        }
-      } catch (err) {
-        console.error("❌ Error processing entry:", err);
-        console.error("❌ Full error:", err.stack);
+    for (const entry of body.entry) {
+      const messagingEvent = entry.messaging?.[0];
+      if (messagingEvent?.message?.text && !messagingEvent.message.is_echo) {
+        const summary = await processUserMessage(messagingEvent.message.text);
+        await sendInstagramMessage(messagingEvent.sender.id, `✅ Nobis Update\n${summary}`);
       }
-    });
-  } else {
-    res.sendStatus(404);
+    }
   }
 });
 
-// --- DISCORD EVENT LISTENERS ---
-
-client.once('ready', () => {
-  console.log(`🤖 Discord Bot Logged in as ${client.user.tag}`);
+// --- DISCORD BOT ---
+const client = new Client({
+  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.DirectMessages, GatewayIntentBits.MessageContent],
+  partials: [Partials.Channel] 
 });
 
 client.on('messageCreate', async (message) => {
-  if (message.author.bot) return;
-
-  if (message.channel.type === ChannelType.DM) {
-    await message.channel.sendTyping();
-
-    try {
-      const summary = await processUserMessage(message.content);
-      await message.reply(`✅ **Received.**\n${summary}\n\nYou can view the dashboard here: http://localhost:3000`);
-    } catch (error) {
-      await message.reply("❌ Sorry, I had trouble processing that request. Please try again later.");
-    }
-  }
-});
-
-// --- TOKEN DEBUG ENDPOINT ---
-app.get('/api/debug-token', async (req, res) => {
+  if (message.author.bot || message.channel.type !== ChannelType.DM) return;
   try {
-    const response = await fetch(`https://graph.facebook.com/v21.0/me?access_token=${IG_USER_ACCESS_TOKEN}`);
-    const data = await response.json();
-    
-    console.log('🔍 Token Debug Info:', JSON.stringify(data, null, 2));
-    res.json(data);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
+    const summary = await processUserMessage(message.content);
+    await message.reply(`✅ **Received.**\n${summary}`);
+  } catch (error) { await message.reply("❌ Error processing request."); }
 });
 
-// --- START SERVERS ---
+// --- STARTUP ---
 app.listen(PORT, () => {
-  console.log(`🚀 Express API running on port ${PORT}`);
-  
-  if (DISCORD_TOKEN) {
-    client.login(DISCORD_TOKEN);
-  } else {
-    console.warn("⚠️ No DISCORD_BOT_TOKEN found in .env. Bot will not start.");
-  }
+  console.log(`🚀 Server running on port ${PORT} with MySQL`);
+  if (DISCORD_TOKEN) client.login(DISCORD_TOKEN);
 });

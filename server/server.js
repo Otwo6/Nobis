@@ -3,6 +3,7 @@ const express = require('express');
 const cors = require('cors');
 const fetch = require('node-fetch');
 const mysql = require('mysql2/promise');
+const crypto = require('crypto'); // Added for message hashing
 const { Client, GatewayIntentBits, Partials, ChannelType } = require('discord.js');
 
 // --- SETUP ---
@@ -16,7 +17,6 @@ const DISCORD_TOKEN = process.env.DISCORD_BOT_TOKEN;
 const IG_USER_ACCESS_TOKEN = process.env.INSTAGRAM_USER_ACCESS_TOKEN;
 const IG_VERIFY_TOKEN = process.env.INSTAGRAM_VERIFY_TOKEN;
 
-// --- MYSQL CONNECTION POOL ---
 const pool = mysql.createPool({
   host: process.env.DB_HOST || 'localhost',
   user: process.env.DB_USER || 'root',
@@ -27,14 +27,39 @@ const pool = mysql.createPool({
   queueLimit: 0
 });
 
+// --- ANTI-SPAM LOGIC ---
+async function checkSpam(userId, platform, content) {
+  const hash = crypto.createHash('sha256').update(content.trim().toLowerCase()).digest('hex');
+  const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+
+  // 1. Check for EXACT duplicate message (ever)
+  const [duplicates] = await pool.query(
+    'SELECT id FROM user_logs WHERE platform_user_id = ? AND platform = ? AND message_hash = ?',
+    [userId, platform, hash]
+  );
+  if (duplicates.length > 0) return { allowed: false, reason: "You've already submitted this exact message before." };
+
+  // 2. Check for rate limit (once per hour)
+  const [recentLogs] = await pool.query(
+    'SELECT id FROM user_logs WHERE platform_user_id = ? AND platform = ? AND created_at > ?',
+    [userId, platform, oneHourAgo]
+  );
+  if (recentLogs.length > 0) return { allowed: false, reason: "You can only send one message per hour." };
+
+  // 3. Log the interaction if clean
+  await pool.query(
+    'INSERT INTO user_logs (platform_user_id, platform, message_hash) VALUES (?, ?, ?)',
+    [userId, platform, hash]
+  );
+  return { allowed: true };
+}
+
 // --- CORE LOGIC (REUSABLE) ---
 async function processUserMessage(userInput) {
   try {
-    // 1. Fetch current data from MySQL for AI context
     const [issues] = await pool.query('SELECT id, issue FROM issues');
     const [questions] = await pool.query('SELECT id, question FROM questions');
 
-    // 2. AI Prompt
     const prompt = `
       CONTEXT:
       Existing Issues: ${JSON.stringify(issues)}
@@ -44,69 +69,82 @@ async function processUserMessage(userInput) {
       
       TASK: Return a JSON object with an "actions" array.
       
-      CLASSIFICATION HIERARCHY:
-      1. QUESTION PRIORITY: If the input starts with or contains interrogative words (Who, What, Where, Why, How, "Plans to", "Will you"), it MUST be classified as a question.
-      2. MATCHING: Check strictly against Existing lists. Return { type: "match_issue", id: <id> } or { type: "match_question", id: <id> }.
-      3. NEW QUESTION: If it's a request for information or a strategy, return { type: "new_question", question: <Summarized Question> }.
-      4. NEW ISSUE: If the input is purely a complaint or statement of fact about a problem without asking "how" or "why", return { type: "new_issue", category: <Select from Categories>, issue: <Title> }.
-      
-      FORMAT: Return ONLY valid JSON.
-      
-      RULES:
-      1. ATOMIC SPLITTING: Split complex inputs into multiple distinct actions.
-      2. MATCHING: Check strictly against Existing lists. Return { type: "match_issue", id: <id> } or { type: "match_question", id: <id> }.
-      3. NEW ISSUE: If the user states a problem/complaint. 
-         Return { type: "new_issue", category: <Select from Categories>, issue: <Title> }.
-      4. NEW QUESTION: If the user asks for a plan/strategy (Who/What/Where/Why/How). 
-         Return { type: "new_question", question: <Summarized Question> }.
+      STRICT RULES:
+      1. NO ASSUMPTIONS: Do not "invent" issues or questions. Only log what is EXPLICITLY stated. 
+         - Example: "How do we fix potholes?" is ONE Question. Do NOT create a separate "Road Issue" unless they also say "The roads are bad."
+      2. ATOMIC SPLITTING: Only split if the user mentions multiple physically different topics (e.g., "Trash in the park AND when is the meeting?").
+      3. SEMANTIC MATCHING: If the explicit point matches an existing ID's meaning, return "match_issue" or "match_question".
+      4. NEW ENTRIES: If no match exists, create a "new_question" or "new_issue". Keep the text close to the user's original intent but formatted cleanly.
 
-      CATEGORIES (Issues Only): Infrastructure, Public Safety, Education, Taxes, Healthcare, Environment.
+      CATEGORIES: Infrastructure, Public Safety, Education, Taxes, Healthcare, Environment.
+      
+      FORMAT:
+      {
+        "actions": [
+          { "type": "match_issue|new_issue|match_question|new_question", "id": 123, "question": "...", "issue": "...", "category": "..." }
+        ]
+      }
     `;
 
     const aiRes = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${OPENAI_KEY}` },
       body: JSON.stringify({
-        model: "gpt-4o-mini", // Upgraded model
+        model: "gpt-4o-mini",
         messages: [
-          { role: "system", content: "You are a data classifier that only outputs JSON." },
+          { 
+            role: "system", 
+            content: "You are a literal data extractor. Do not infer hidden meanings. If the user asks a question, log a question. If they state a problem, log an issue. Do not create both unless they explicitly provide both." 
+          },
           { role: "user", content: prompt }
         ],
-        response_format: { type: "json_object" }, // Forces valid JSON output
-        temperature: 0 // Absolute minimum randomness
+        response_format: { type: "json_object" },
+        temperature: 0 // Drop back to 0 for maximum literalism
       })
     });
 
     const aiJson = await aiRes.json();
-    if (!aiRes.ok) throw new Error(`OpenAI Error: ${aiJson.error?.message}`);
-
     const result = JSON.parse(aiJson.choices[0].message.content);
     const actions = result.actions || [];
     let summaryLog = [];
 
-    // 3. Process Actions in MySQL
     for (const action of actions) {
-      if (action.type === 'match_issue') {
+      // --- MATCHES ---
+      if (action.type === 'match_issue' && action.id) {
         await pool.query('UPDATE issues SET count = count + 1 WHERE id = ?', [action.id]);
-        summaryLog.push(`Upvoted existing issue: ID #${action.id}`);
+        summaryLog.push(`✅ Upvoted issue #${action.id}`);
       } 
-      else if (action.type === 'new_issue') {
-        await pool.query('INSERT INTO issues (category, issue, count, trend) VALUES (?, ?, 1, "New")', 
-          [action.category, action.issue]);
-        summaryLog.push(`Created new issue: "${action.issue}"`);
-      }
-      else if (action.type === 'match_question') {
+      else if (action.type === 'match_question' && action.id) {
         await pool.query('UPDATE questions SET asked_count = asked_count + 1 WHERE id = ?', [action.id]);
-        summaryLog.push(`Upvoted existing question: ID #${action.id}`);
+        summaryLog.push(`✅ Upvoted question #${action.id}`);
       }
-      else if (action.type === 'new_question') {
-        await pool.query('INSERT INTO questions (question, asked_count, answered) VALUES (?, 1, FALSE)', 
-          [action.question]);
-        summaryLog.push(`Submitted new question: "${action.question}"`);
+      // --- NEW ISSUE ---
+      else if (action.type === 'new_issue' && action.issue) {
+        // Fallback check: if the AI missed a match but the string is identical
+        const [exact] = await pool.query('SELECT id FROM issues WHERE issue = ?', [action.issue]);
+        if (exact.length > 0) {
+          await pool.query('UPDATE issues SET count = count + 1 WHERE id = ?', [exact[0].id]);
+          summaryLog.push(`✅ Upvoted issue #${exact[0].id}`);
+        } else {
+          await pool.query('INSERT INTO issues (category, issue, count, trend) VALUES (?, ?, 1, "New")', 
+            [action.category || 'Infrastructure', action.issue]);
+          summaryLog.push(`✨ New Issue: "${action.issue}"`);
+        }
+      } 
+      // --- NEW QUESTION ---
+      else if (action.type === 'new_question' && action.question) {
+        const [exact] = await pool.query('SELECT id FROM questions WHERE question = ?', [action.question]);
+        if (exact.length > 0) {
+          await pool.query('UPDATE questions SET asked_count = asked_count + 1 WHERE id = ?', [exact[0].id]);
+          summaryLog.push(`✅ Upvoted question #${exact[0].id}`);
+        } else {
+          await pool.query('INSERT INTO questions (question, asked_count, answered) VALUES (?, 1, FALSE)', [action.question]);
+          summaryLog.push(`✨ New Question: "${action.question}"`);
+        }
       }
     }
 
-    return summaryLog.length > 0 ? summaryLog.join('\n') : "I heard you, but didn't detect a specific issue or question.";
+    return summaryLog.length > 0 ? summaryLog.join('\n') : "I heard you, but I couldn't identify a specific problem or question to log. Could you be more specific?";
   } catch (error) {
     console.error("Processing Error:", error);
     throw new Error('Processing failed');
@@ -124,50 +162,7 @@ async function sendInstagramMessage(recipientId, text) {
   });
 }
 
-// --- EXPRESS ROUTES ---
-
-// GET: All Dashboard Data
-app.get('/api/data', async (req, res) => {
-  try {
-    const [issues] = await pool.query('SELECT * FROM issues ORDER BY count DESC');
-    const [rawQuestions] = await pool.query('SELECT * FROM questions ORDER BY asked_count DESC');
-
-    // Map MySQL snake_case to Frontend camelCase
-    const questions = rawQuestions.map(q => ({
-      id: q.id,
-      question: q.question,
-      askedCount: q.asked_count,
-      answered: Boolean(q.answered),
-      answer: q.answer || ''
-    }));
-
-    res.json({ issues, questions });
-  } catch (e) { res.status(500).json({ error: e.message }); }
-});
-
-// POST: Analyze input from Website
-app.post('/api/analyze', async (req, res) => {
-  try {
-    const summary = await processUserMessage(req.body.voiceInput);
-    res.json({ success: true, message: summary });
-  } catch (error) { res.status(500).json({ error: error.message }); }
-});
-
-// POST: Official Answer from Admin
-app.post('/api/answer', async (req, res) => {
-    const { id, answer } = req.body;
-    try {
-      await pool.query('UPDATE questions SET answered = TRUE, answer = ? WHERE id = ?', [answer, id]);
-      res.json({ success: true });
-    } catch (e) { res.status(500).json({ error: e.message }); }
-});
-
 // --- INSTAGRAM WEBHOOKS ---
-app.get('/api/instagram/webhook', (req, res) => {
-  if (req.query['hub.verify_token'] === IG_VERIFY_TOKEN) res.send(req.query['hub.challenge']);
-  else res.sendStatus(403);
-});
-
 app.post('/api/instagram/webhook', async (req, res) => {
   const body = req.body;
   if (body.object === 'instagram') {
@@ -175,8 +170,17 @@ app.post('/api/instagram/webhook', async (req, res) => {
     for (const entry of body.entry) {
       const messagingEvent = entry.messaging?.[0];
       if (messagingEvent?.message?.text && !messagingEvent.message.is_echo) {
-        const summary = await processUserMessage(messagingEvent.message.text);
-        await sendInstagramMessage(messagingEvent.sender.id, `✅ Nobis Update\n${summary}`);
+        const userId = messagingEvent.sender.id;
+        const text = messagingEvent.message.text;
+
+        // Anti-Spam Check
+        const spamCheck = await checkSpam(userId, 'instagram', text);
+        if (!spamCheck.allowed) {
+          return await sendInstagramMessage(userId, `⚠️ ${spamCheck.reason}`);
+        }
+
+        const summary = await processUserMessage(text);
+        await sendInstagramMessage(userId, `✅ Nobis Update\n${summary}`);
       }
     }
   }
@@ -191,13 +195,39 @@ const client = new Client({
 client.on('messageCreate', async (message) => {
   if (message.author.bot || message.channel.type !== ChannelType.DM) return;
   try {
+    // Anti-Spam Check
+    const spamCheck = await checkSpam(message.author.id, 'discord', message.content);
+    if (!spamCheck.allowed) {
+      return await message.reply(`⚠️ ${spamCheck.reason}`);
+    }
+
     const summary = await processUserMessage(message.content);
     await message.reply(`✅ **Received.**\n${summary}`);
   } catch (error) { await message.reply("❌ Error processing request."); }
 });
 
-// --- STARTUP ---
+// --- REMAINING ROUTES (GET /api/data, POST /api/answer, etc.) ---
+app.get('/api/data', async (req, res) => {
+  try {
+    const [issues] = await pool.query('SELECT * FROM issues ORDER BY count DESC');
+    const [rawQuestions] = await pool.query('SELECT * FROM questions ORDER BY asked_count DESC');
+    const questions = rawQuestions.map(q => ({
+      id: q.id, question: q.question, askedCount: q.asked_count,
+      answered: Boolean(q.answered), answer: q.answer || ''
+    }));
+    res.json({ issues, questions });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/answer', async (req, res) => {
+    const { id, answer } = req.body;
+    try {
+      await pool.query('UPDATE questions SET answered = TRUE, answer = ? WHERE id = ?', [answer, id]);
+      res.json({ success: true });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT} with MySQL`);
+  console.log(`🚀 Server running on port ${PORT}`);
   if (DISCORD_TOKEN) client.login(DISCORD_TOKEN);
 });

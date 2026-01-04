@@ -107,6 +107,30 @@ const Nobis = () => {
     }
   };
 
+  const handleResolveIssue = async (issueId) => {
+  const reason = prompt("Enter a reason for the constituents (e.g., 'Work order #123 completed'):");
+  if (!reason) return;
+
+  try {
+    const token = localStorage.getItem('nobis_token');
+    const res = await fetch('http://localhost:3001/api/resolve-issue', {
+      method: 'POST',
+      headers: { 
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify({ issueId, reason, actionType: 'resolved' })
+    });
+    
+    if (res.ok) {
+      alert("Issue resolved and constituents notified!");
+      await fetchData(); // Refresh list
+    }
+  } catch (error) {
+    alert("Error resolving issue.");
+  }
+};
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50">
       
@@ -244,8 +268,27 @@ const Nobis = () => {
                         <span className="text-2xl font-bold text-gray-800">{issue.count}</span>
                       </div>
                     </div>
-                    <div className="w-full bg-gray-200 h-1.5 rounded-full mt-2">
-                      <div className="bg-indigo-600 h-1.5 rounded-full" style={{ width: `${Math.min(100, (issue.count / (topIssues[0]?.count || 1) * 100))}%` }}></div>
+                    <div className="flex justify-between items-center mt-2">
+                      <div className="w-full bg-gray-200 h-1.5 rounded-full">
+                        <div className="bg-indigo-600 h-1.5 rounded-full" style={{ width: `${Math.min(100, (issue.count / (topIssues[0]?.count || 1) * 100))}%` }}></div>
+                      </div>
+                      
+                      {isAuthenticated && (
+                        <div className="flex gap-2 ml-4">
+                          <button 
+                            onClick={() => handleResolveIssue(issue.id)}
+                            className="text-xs font-bold text-green-600 hover:text-green-800 uppercase"
+                          >
+                            Resolve
+                          </button>
+                          <button 
+                            onClick={() => { /* Similar logic for delete */ }}
+                            className="text-xs font-bold text-red-600 hover:text-red-800 uppercase"
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      )}
                     </div>
                   </div>
                 ))

@@ -101,7 +101,7 @@ async function checkSpam(userId, platform, content) {
 }
 
 // --- CORE LOGIC (REUSABLE) ---
-async function processUserMessage(userInput) {
+async function processUserMessage(userInput, platformUserId, messageHash) {
   try {
     const [issues] = await pool.query('SELECT id, issue FROM issues');
     const [questions] = await pool.query('SELECT id, question FROM questions');
@@ -157,9 +157,11 @@ async function processUserMessage(userInput) {
       let summaryLog = [];
 
       for (const action of actions) {
+        let currentIssueId = null;
         // --- MATCHES ---
         if (action.type === 'match_issue' && action.id) {
           await pool.query('UPDATE issues SET count = count + 1 WHERE id = ?', [action.id]);
+          currentIssueId = action.id;
           summaryLog.push(`✅ Upvoted issue #${action.id}`);
         } 
         else if (action.type === 'match_question' && action.id) {
@@ -172,10 +174,12 @@ async function processUserMessage(userInput) {
           const [exact] = await pool.query('SELECT id FROM issues WHERE issue = ?', [action.issue]);
           if (exact.length > 0) {
             await pool.query('UPDATE issues SET count = count + 1 WHERE id = ?', [exact[0].id]);
+            currentIssueId = exact[0].id;
             summaryLog.push(`✅ Upvoted issue #${exact[0].id}`);
           } else {
-            await pool.query('INSERT INTO issues (category, issue, count, trend) VALUES (?, ?, 1, "New")', 
+            const [result] = await pool.query('INSERT INTO issues (category, issue, count, trend) VALUES (?, ?, 1, "New")', 
               [action.category || 'Infrastructure', action.issue]);
+            currentIssueId = result.insertId;
             summaryLog.push(`✨ New Issue: "${action.issue}"`);
           }
         } 
@@ -189,6 +193,13 @@ async function processUserMessage(userInput) {
             await pool.query('INSERT INTO questions (question, asked_count, answered) VALUES (?, 1, FALSE)', [action.question]);
             summaryLog.push(`✨ New Question: "${action.question}"`);
           }
+        }
+
+        if (currentIssueId) {
+          await pool.query(
+              'UPDATE user_logs SET issue_id = ? WHERE platform_user_id = ? AND message_hash = ?',
+              [currentIssueId, platformUserId, messageHash] 
+          );
         }
       }
 
@@ -231,7 +242,8 @@ app.post('/api/instagram/webhook', async (req, res) => {
           return await sendInstagramMessage(userId, `⚠️ ${spamCheck.reason}`);
         }
 
-        const summary = await processUserMessage(text);
+        const messageHash = crypto.createHash('sha256').update(text.trim().toLowerCase()).digest('hex');
+        const summary = await processUserMessage(text, userId, messageHash);
         await sendInstagramMessage(userId, `✅ Nobis Update\n${summary}`);
       }
     }
@@ -253,7 +265,8 @@ client.on('messageCreate', async (message) => {
       return await message.reply(`⚠️ ${spamCheck.reason}`);
     }
 
-    const summary = await processUserMessage(message.content);
+    const messageHash = crypto.createHash('sha256').update(message.content.trim().toLowerCase()).digest('hex');
+    const summary = await processUserMessage(message.content, message.author.id, messageHash);
     await message.reply(`✅ **Received.**\n${summary}`);
   } catch (error) { await message.reply("❌ Error processing request."); }
 });
@@ -274,4 +287,41 @@ app.get('/api/data', async (req, res) => {
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
   if (DISCORD_TOKEN) client.login(DISCORD_TOKEN);
+});
+
+app.post('/api/resolve-issue', authenticateToken, async (req, res) => {
+  const { issueId, reason, actionType } = req.body; // actionType: 'resolved' or 'removed'
+
+  try {
+    // 1. Get all users who reported this issue
+    const [constituents] = await pool.query(
+      'SELECT platform, platform_user_id FROM user_logs WHERE issue_id = ?', 
+      [issueId]
+    );
+
+    const message = `📢 Nobis Update: An issue you reported has been ${actionType}.\n\nReason: ${reason}`;
+
+    // 2. Broadcast to all users
+    for (const user of constituents) {
+      if (user.platform === 'discord') {
+        try {
+          const discordUser = await client.users.fetch(user.platform_user_id);
+          await discordUser.send(message);
+        } catch (err) { console.error("Discord notify failed", err); }
+      } 
+      else if (user.platform === 'instagram') {
+        try {
+          await sendInstagramMessage(user.platform_user_id, message);
+        } catch (err) { console.error("IG notify failed", err); }
+      }
+    }
+
+    // 3. Remove the issue from the dashboard
+    await pool.query('DELETE FROM issues WHERE id = ?', [issueId]);
+    // Optional: Clean up logs or keep them for history
+    
+    res.json({ success: true, notifiedCount: constituents.length });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });

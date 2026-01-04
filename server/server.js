@@ -150,47 +150,53 @@ async function processUserMessage(userInput) {
     });
 
     const aiJson = await aiRes.json();
-    const result = JSON.parse(aiJson.choices[0].message.content);
-    const actions = result.actions || [];
-    let summaryLog = [];
+    try {
+      const aiContent = aiJson.choices[0].message.content;
+      const result = JSON.parse(aiContent);
+      const actions = result.actions || [];
+      let summaryLog = [];
 
-    for (const action of actions) {
-      // --- MATCHES ---
-      if (action.type === 'match_issue' && action.id) {
-        await pool.query('UPDATE issues SET count = count + 1 WHERE id = ?', [action.id]);
-        summaryLog.push(`✅ Upvoted issue #${action.id}`);
-      } 
-      else if (action.type === 'match_question' && action.id) {
-        await pool.query('UPDATE questions SET asked_count = asked_count + 1 WHERE id = ?', [action.id]);
-        summaryLog.push(`✅ Upvoted question #${action.id}`);
-      }
-      // --- NEW ISSUE ---
-      else if (action.type === 'new_issue' && action.issue) {
-        // Fallback check: if the AI missed a match but the string is identical
-        const [exact] = await pool.query('SELECT id FROM issues WHERE issue = ?', [action.issue]);
-        if (exact.length > 0) {
-          await pool.query('UPDATE issues SET count = count + 1 WHERE id = ?', [exact[0].id]);
-          summaryLog.push(`✅ Upvoted issue #${exact[0].id}`);
-        } else {
-          await pool.query('INSERT INTO issues (category, issue, count, trend) VALUES (?, ?, 1, "New")', 
-            [action.category || 'Infrastructure', action.issue]);
-          summaryLog.push(`✨ New Issue: "${action.issue}"`);
+      for (const action of actions) {
+        // --- MATCHES ---
+        if (action.type === 'match_issue' && action.id) {
+          await pool.query('UPDATE issues SET count = count + 1 WHERE id = ?', [action.id]);
+          summaryLog.push(`✅ Upvoted issue #${action.id}`);
+        } 
+        else if (action.type === 'match_question' && action.id) {
+          await pool.query('UPDATE questions SET asked_count = asked_count + 1 WHERE id = ?', [action.id]);
+          summaryLog.push(`✅ Upvoted question #${action.id}`);
         }
-      } 
-      // --- NEW QUESTION ---
-      else if (action.type === 'new_question' && action.question) {
-        const [exact] = await pool.query('SELECT id FROM questions WHERE question = ?', [action.question]);
-        if (exact.length > 0) {
-          await pool.query('UPDATE questions SET asked_count = asked_count + 1 WHERE id = ?', [exact[0].id]);
-          summaryLog.push(`✅ Upvoted question #${exact[0].id}`);
-        } else {
-          await pool.query('INSERT INTO questions (question, asked_count, answered) VALUES (?, 1, FALSE)', [action.question]);
-          summaryLog.push(`✨ New Question: "${action.question}"`);
+        // --- NEW ISSUE ---
+        else if (action.type === 'new_issue' && action.issue) {
+          // Fallback check: if the AI missed a match but the string is identical
+          const [exact] = await pool.query('SELECT id FROM issues WHERE issue = ?', [action.issue]);
+          if (exact.length > 0) {
+            await pool.query('UPDATE issues SET count = count + 1 WHERE id = ?', [exact[0].id]);
+            summaryLog.push(`✅ Upvoted issue #${exact[0].id}`);
+          } else {
+            await pool.query('INSERT INTO issues (category, issue, count, trend) VALUES (?, ?, 1, "New")', 
+              [action.category || 'Infrastructure', action.issue]);
+            summaryLog.push(`✨ New Issue: "${action.issue}"`);
+          }
+        } 
+        // --- NEW QUESTION ---
+        else if (action.type === 'new_question' && action.question) {
+          const [exact] = await pool.query('SELECT id FROM questions WHERE question = ?', [action.question]);
+          if (exact.length > 0) {
+            await pool.query('UPDATE questions SET asked_count = asked_count + 1 WHERE id = ?', [exact[0].id]);
+            summaryLog.push(`✅ Upvoted question #${exact[0].id}`);
+          } else {
+            await pool.query('INSERT INTO questions (question, asked_count, answered) VALUES (?, 1, FALSE)', [action.question]);
+            summaryLog.push(`✨ New Question: "${action.question}"`);
+          }
         }
       }
+
+      return summaryLog.length > 0 ? summaryLog.join('\n') : "I heard you, but I couldn't identify a specific problem or question to log. Could you be more specific?";
+    } catch (e) {
+      console.error("AI returned invalid JSON:", aiJson);
+      return "I'm having trouble processing that right now. Please try again later.";
     }
-
-    return summaryLog.length > 0 ? summaryLog.join('\n') : "I heard you, but I couldn't identify a specific problem or question to log. Could you be more specific?";
   } catch (error) {
     console.error("Processing Error:", error);
     throw new Error('Processing failed');

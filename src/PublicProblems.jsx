@@ -149,19 +149,43 @@ const Nobis = () => {
 
       {/* Login Modal */}
       {showLoginModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-sm">
-            <h3 className="text-lg font-bold mb-4">Representative Login</h3>
-            <input 
-              type="password" 
-              placeholder="Enter password (admin)" 
-              className="w-full border border-gray-300 rounded-lg p-2 mb-4"
-              value={loginPassword}
-              onChange={e => setLoginPassword(e.target.value)}
-            />
-            <div className="flex gap-2">
-              <button onClick={handleLogin} className="flex-1 bg-indigo-600 text-white py-2 rounded-lg">Login</button>
-              <button onClick={() => setShowLoginModal(false)} className="flex-1 bg-gray-200 text-gray-800 py-2 rounded-lg">Cancel</button>
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-[400px] border border-gray-100">
+            <div className="flex flex-col items-center mb-6">
+              <div className="p-3 bg-indigo-50 rounded-full mb-4">
+                <Lock className="w-6 h-6 text-indigo-600" />
+              </div>
+              <h3 className="text-xl font-bold text-gray-900">Representative Login</h3>
+              <p className="text-sm text-gray-500">Access administrative dashboard</p>
+            </div>
+            
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">Password</label>
+                <input 
+                  type="password" 
+                  placeholder="••••••••" 
+                  className="w-full border border-gray-300 rounded-lg p-3 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all"
+                  value={loginPassword}
+                  onChange={e => setLoginPassword(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleLogin()}
+                />
+              </div>
+              
+              <div className="flex flex-col gap-2 pt-2">
+                <button 
+                  onClick={handleLogin} 
+                  className="w-full bg-indigo-600 text-white py-3 rounded-lg font-semibold hover:bg-indigo-700 transition-colors shadow-md active:transform active:scale-[0.98]"
+                >
+                  Login
+                </button>
+                <button 
+                  onClick={() => setShowLoginModal(false)} 
+                  className="w-full bg-gray-50 text-gray-600 py-3 rounded-lg font-medium hover:bg-gray-100 transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
             </div>
           </div>
         </div>

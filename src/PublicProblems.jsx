@@ -4,9 +4,6 @@ import {
   MessageSquare, 
   LogOut, 
   Lock, 
-  Send, 
-  Loader2, 
-  CheckCircle2,
   Filter,
   ListFilter
 } from 'lucide-react';
@@ -17,16 +14,11 @@ const Nobis = () => {
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [loginPassword, setLoginPassword] = useState('');
 
-  // --- INPUT STATE ---
-  const [voiceInput, setVoiceInput] = useState('');
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [submissionStatus, setSubmissionStatus] = useState(null);
-
   // --- DISPLAY CONTROLS ---
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [displayLimit, setDisplayLimit] = useState(5);
 
-  // --- DATA STATE (Now starts empty) ---
+  // --- DATA STATE ---
   const [topIssues, setTopIssues] = useState([]);
   const [questions, setQuestions] = useState([]);
 
@@ -34,14 +26,13 @@ const Nobis = () => {
   const [editingQuestion, setEditingQuestion] = useState(null);
   const [answerText, setAnswerText] = useState('');
 
-  // --- FETCH DATA FROM SERVER (GOOGLE SHEETS) ---
+  // --- FETCH DATA FROM SERVER ---
   const fetchData = async () => {
     try {
       const res = await fetch('http://localhost:3001/api/data');
       if (!res.ok) throw new Error('Failed to fetch data');
       
       const data = await res.json();
-      // Ensure we set arrays even if data is missing
       setTopIssues(data.issues || []);
       setQuestions(data.questions || []);
     } catch (e) {
@@ -49,7 +40,6 @@ const Nobis = () => {
     }
   };
 
-  // Load data when component mounts
   useEffect(() => {
     fetchData();
   }, []);
@@ -65,89 +55,50 @@ const Nobis = () => {
     if (selectedCategory !== 'All') {
       filtered = filtered.filter(issue => issue.category === selectedCategory);
     }
-    // Sort by count (highest first)
     filtered.sort((a, b) => b.count - a.count);
     return filtered.slice(0, displayLimit);
   }, [topIssues, selectedCategory, displayLimit]);
 
-  // --- SECURE AI SUBMISSION ---
-  const analyzeAndSubmitIssue = async () => {
-    if (!voiceInput.trim()) return;
-    
-    setIsAnalyzing(true);
-    setSubmissionStatus(null);
-
-    try {
-      // 1. Send input to server
-      // Note: We no longer send "context". The server reads the Sheet directly.
-      const response = await fetch('http://localhost:3001/api/analyze', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          voiceInput: voiceInput
-        })
-      });
-
-      if (!response.ok) throw new Error('Server error');
-
-      // 2. Wait for success, then refresh data from Sheets
-      await fetchData();
-
-      setSubmissionStatus('success');
-      setVoiceInput('');
-      setTimeout(() => setSubmissionStatus(null), 3000);
-
-    } catch (error) {
-      console.error("Error:", error);
-      setSubmissionStatus('error');
-    } finally {
-      setIsAnalyzing(false);
-    }
-  };
-
   // --- LOGIN LOGIC ---
   const handleLogin = async () => {
-  try {
-    const response = await fetch('http://localhost:3001/api/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username: 'admin', password: loginPassword })
-    });
+    try {
+      const response = await fetch('http://localhost:3001/api/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: 'admin', password: loginPassword })
+      });
 
-    const data = await response.json();
+      const data = await response.json();
 
-    if (data.success) {
-      localStorage.setItem('nobis_token', data.token); // Store token
-      setIsAuthenticated(true);
-      setShowLoginModal(false);
-      setLoginPassword('');
-    } else {
-      alert("Invalid Password");
+      if (data.success) {
+        localStorage.setItem('nobis_token', data.token);
+        setIsAuthenticated(true);
+        setShowLoginModal(false);
+        setLoginPassword('');
+      } else {
+        alert("Invalid Password");
+      }
+    } catch (error) {
+      alert("Login failed. Is the server running?");
     }
-  } catch (error) {
-    alert("Login failed. Is the server running?");
-  }
-};
+  };
 
   // --- ADMIN Q&A LOGIC ---
   const handleAnswerQuestion = async (questionId) => {
     try {
-      const token = localStorage.getItem('nobis_token'); // Retrieve token
+      const token = localStorage.getItem('nobis_token');
 
       await fetch('http://localhost:3001/api/answer', {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}` // Include token here
+          'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify({ id: questionId, answer: answerText })
       });
 
-      // Clear local state
       setEditingQuestion(null);
       setAnswerText('');
-      
-      // Refresh data to show new answer
       await fetchData();
       
     } catch (error) {
@@ -199,7 +150,7 @@ const Nobis = () => {
       {/* Login Modal */}
       {showLoginModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-sm">
+          <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-sm">
             <h3 className="text-lg font-bold mb-4">Representative Login</h3>
             <input 
               type="password" 
@@ -216,44 +167,8 @@ const Nobis = () => {
         </div>
       )}
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         
-        {/* --- VOICE INPUT --- */}
-        <div className="bg-white rounded-xl shadow-lg p-6 border-l-4 border-indigo-600">
-          <h2 className="text-xl font-bold text-gray-900 mb-2">Speak Your Mind</h2>
-          <p className="text-gray-600 mb-4 text-sm">
-            Share problems or ask questions. Our system automatically sorts them. 
-            <br/><span className="text-xs text-gray-400 italic">(e.g., "The roads are bad and when is the town hall?")</span>
-          </p>
-          <div className="relative">
-            <textarea 
-              value={voiceInput}
-              onChange={(e) => setVoiceInput(e.target.value)}
-              placeholder="Type or speak here..."
-              className="w-full p-4 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 min-h-[100px]"
-            />
-            <button
-              onClick={analyzeAndSubmitIssue}
-              disabled={isAnalyzing || !voiceInput.trim()}
-              className="absolute bottom-4 right-4 bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 disabled:opacity-50 flex items-center gap-2"
-            >
-              {isAnalyzing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-              Submit
-            </button>
-          </div>
-          {submissionStatus === 'success' && (
-            <div className="mt-3 text-green-600 flex items-center gap-2 text-sm font-medium animate-in fade-in slide-in-from-top-2">
-              <CheckCircle2 className="w-5 h-5" />
-              <span>Input processed successfully! check the lists below.</span>
-            </div>
-          )}
-          {submissionStatus === 'error' && (
-            <div className="mt-3 text-red-600 text-sm font-medium">
-              Server connection failed. Make sure server.js is running.
-            </div>
-          )}
-        </div>
-
         <div className="grid md:grid-cols-2 gap-8">
           
           {/* --- LEFT: ISSUES LIST --- */}
@@ -345,7 +260,6 @@ const Nobis = () => {
                       <p className="text-xs text-gray-500 italic">Waiting for response...</p>
                     )}
 
-                    {/* Admin Reply Box */}
                     {isAuthenticated && (
                       <div className="mt-3 pt-3 border-t border-gray-200">
                         {editingQuestion === q.id ? (

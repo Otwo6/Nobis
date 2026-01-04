@@ -19,7 +19,7 @@ const IG_VERIFY_TOKEN = process.env.INSTAGRAM_VERIFY_TOKEN;
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 
-const JWT_SECRET = process.env.JWT_SECRET || 'your_super_secret_key';
+const JWT_SECRET = process.env.JWT_SECRET;
 
 // 1. LOGIN ROUTE
 app.post('/api/login', async (req, res) => {
@@ -54,14 +54,6 @@ const authenticateToken = (req, res, next) => {
     next();
   });
 };
-
-// 3. PROTECTED ROUTE (Update your existing route)
-app.post('/api/answer', authenticateToken, async (req, res) => {
-  const { id, answer } = req.body;
-  // Now only logged-in users can reach this code
-  await pool.query('UPDATE questions SET answered = TRUE, answer = ? WHERE id = ?', [answer, id]);
-  res.json({ success: true });
-});
 
 const pool = mysql.createPool({
   host: process.env.DB_HOST || 'localhost',
@@ -158,6 +150,7 @@ async function processUserMessage(userInput, platformUserId, messageHash) {
 
       for (const action of actions) {
         let currentIssueId = null;
+        let currentQuestionId = null;
         // --- MATCHES ---
         if (action.type === 'match_issue' && action.id) {
           await pool.query('UPDATE issues SET count = count + 1 WHERE id = ?', [action.id]);
@@ -166,6 +159,7 @@ async function processUserMessage(userInput, platformUserId, messageHash) {
         } 
         else if (action.type === 'match_question' && action.id) {
           await pool.query('UPDATE questions SET asked_count = asked_count + 1 WHERE id = ?', [action.id]);
+          currentQuestionId = action.id;
           summaryLog.push(`✅ Upvoted question #${action.id}`);
         }
         // --- NEW ISSUE ---
@@ -188,9 +182,11 @@ async function processUserMessage(userInput, platformUserId, messageHash) {
           const [exact] = await pool.query('SELECT id FROM questions WHERE question = ?', [action.question]);
           if (exact.length > 0) {
             await pool.query('UPDATE questions SET asked_count = asked_count + 1 WHERE id = ?', [exact[0].id]);
+            currentQuestionId = exact[0].id;
             summaryLog.push(`✅ Upvoted question #${exact[0].id}`);
           } else {
-            await pool.query('INSERT INTO questions (question, asked_count, answered) VALUES (?, 1, FALSE)', [action.question]);
+            const [insertResult] =await pool.query('INSERT INTO questions (question, asked_count, answered) VALUES (?, 1, FALSE)', [action.question]);
+            currentQuestionId = insertResult.insertId;
             summaryLog.push(`✨ New Question: "${action.question}"`);
           }
         }
@@ -200,6 +196,13 @@ async function processUserMessage(userInput, platformUserId, messageHash) {
               'UPDATE user_logs SET issue_id = ? WHERE platform_user_id = ? AND message_hash = ?',
               [currentIssueId, platformUserId, messageHash] 
           );
+        }
+
+        if (currentQuestionId) {
+            await pool.query(
+                'UPDATE user_logs SET question_id = ? WHERE platform_user_id = ? AND message_hash = ?',
+                [currentQuestionId, platformUserId, messageHash] 
+            );
         }
       }
 
@@ -320,6 +323,46 @@ app.post('/api/resolve-issue', authenticateToken, async (req, res) => {
     await pool.query('DELETE FROM issues WHERE id = ?', [issueId]);
     // Optional: Clean up logs or keep them for history
     
+    res.json({ success: true, notifiedCount: constituents.length });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/answer', authenticateToken, async (req, res) => {
+  const { id, answer } = req.body;
+
+  try {
+    // 1. Update the question in the database
+    await pool.query('UPDATE questions SET answered = TRUE, answer = ? WHERE id = ?', [answer, id]);
+
+    // 2. Fetch the question text to include in the notification
+    const [qData] = await pool.query('SELECT question FROM questions WHERE id = ?', [id]);
+    const questionText = qData[0]?.question;
+
+    // 3. Find everyone who asked this question
+    const [constituents] = await pool.query(
+      'SELECT platform, platform_user_id FROM user_logs WHERE question_id = ?', 
+      [id]
+    );
+
+    const notifyMessage = `📝 **Question Answered!**\n\n**Q:** "${questionText}"\n**Reply:** ${answer}`;
+
+    // 4. Broadcast to all users
+    for (const user of constituents) {
+      if (user.platform === 'discord') {
+        try {
+          const discordUser = await client.users.fetch(user.platform_user_id);
+          await discordUser.send(notifyMessage);
+        } catch (err) { console.error("Discord notify failed", err); }
+      } 
+      else if (user.platform === 'instagram') {
+        try {
+          await sendInstagramMessage(user.platform_user_id, notifyMessage);
+        } catch (err) { console.error("IG notify failed", err); }
+      }
+    }
+
     res.json({ success: true, notifiedCount: constituents.length });
   } catch (e) {
     res.status(500).json({ error: e.message });

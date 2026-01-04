@@ -107,22 +107,39 @@ const Nobis = () => {
 
   // --- LOGIN LOGIC ---
   const handleLogin = async () => {
-    if (loginPassword === 'admin') {
+  try {
+    const response = await fetch('http://localhost:3001/api/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: 'admin', password: loginPassword })
+    });
+
+    const data = await response.json();
+
+    if (data.success) {
+      localStorage.setItem('nobis_token', data.token); // Store token
       setIsAuthenticated(true);
       setShowLoginModal(false);
       setLoginPassword('');
     } else {
-      alert("Incorrect Password (try 'admin')");
+      alert("Invalid Password");
     }
-  };
+  } catch (error) {
+    alert("Login failed. Is the server running?");
+  }
+};
 
   // --- ADMIN Q&A LOGIC ---
   const handleAnswerQuestion = async (questionId) => {
     try {
-      // Send answer to server
+      const token = localStorage.getItem('nobis_token'); // Retrieve token
+
       await fetch('http://localhost:3001/api/answer', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}` // Include token here
+        },
         body: JSON.stringify({ id: questionId, answer: answerText })
       });
 

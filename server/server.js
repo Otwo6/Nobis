@@ -16,6 +16,52 @@ const OPENAI_KEY = process.env.OPENAI_KEY;
 const DISCORD_TOKEN = process.env.DISCORD_BOT_TOKEN;
 const IG_USER_ACCESS_TOKEN = process.env.INSTAGRAM_USER_ACCESS_TOKEN;
 const IG_VERIFY_TOKEN = process.env.INSTAGRAM_VERIFY_TOKEN;
+const bcrypt = require('bcrypt');
+const jwt = require('jsonwebtoken');
+
+const JWT_SECRET = process.env.JWT_SECRET || 'your_super_secret_key';
+
+// 1. LOGIN ROUTE
+app.post('/api/login', async (req, res) => {
+  const { username, password } = req.body;
+
+  try {
+    const [rows] = await pool.query('SELECT * FROM users WHERE username = ?', [username]);
+    const user = rows[0];
+
+    if (user && await bcrypt.compare(password, user.password_hash)) {
+      // Create a token that expires in 2 hours
+      const token = jwt.sign({ id: user.id, role: 'admin' }, JWT_SECRET, { expiresIn: '2h' });
+      res.json({ success: true, token });
+    } else {
+      res.status(401).json({ success: false, message: 'Invalid credentials' });
+    }
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// 2. AUTH MIDDLEWARE (To protect routes)
+const authenticateToken = (req, res, next) => {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+
+  if (!token) return res.sendStatus(401);
+
+  jwt.verify(token, JWT_SECRET, (err, user) => {
+    if (err) return res.sendStatus(403);
+    req.user = user;
+    next();
+  });
+};
+
+// 3. PROTECTED ROUTE (Update your existing route)
+app.post('/api/answer', authenticateToken, async (req, res) => {
+  const { id, answer } = req.body;
+  // Now only logged-in users can reach this code
+  await pool.query('UPDATE questions SET answered = TRUE, answer = ? WHERE id = ?', [answer, id]);
+  res.json({ success: true });
+});
 
 const pool = mysql.createPool({
   host: process.env.DB_HOST || 'localhost',
@@ -217,14 +263,6 @@ app.get('/api/data', async (req, res) => {
     }));
     res.json({ issues, questions });
   } catch (e) { res.status(500).json({ error: e.message }); }
-});
-
-app.post('/api/answer', async (req, res) => {
-    const { id, answer } = req.body;
-    try {
-      await pool.query('UPDATE questions SET answered = TRUE, answer = ? WHERE id = ?', [answer, id]);
-      res.json({ success: true });
-    } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 app.listen(PORT, () => {

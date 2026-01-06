@@ -209,20 +209,42 @@ async function processUserMessage(userInput, platformUserId, messageHash) {
     // Sanitize input to prevent prompt injection
     const sanitizedInput = userInput.replace(/ignore|override|system|assistant/gi, '').slice(0, 1000);
     
-    const [issues] = await pool.query('SELECT id, issue FROM issues WHERE approved = TRUE');
+    const [issues] = await pool.query('SELECT id, issue FROM issues');
     const [questions] = await pool.query('SELECT id, question FROM questions');
 
-    const systemPrompt = `You are a strict data extraction system. Extract ONLY what is explicitly stated. Never infer or assume. Return valid JSON only.`;
-    
+    const systemPrompt = `
+      You are an intelligent intake assistant for a politician. 
+      Your goal is to categorize user input as either an **Issue** (a problem they want fixed) or a **Question** (something they want to know).
+      
+      RULES:
+      1. Analyze the 'Existing Issues' and 'Existing Questions' lists provided in the context.
+      2. If the user input implies a meaning semantically identical to an existing item, return a "match_issue" or "match_question" with the corresponding ID.
+      3. If the input is a valid concern or inquiry but does NOT match existing items, create a "new_issue" or "new_question".
+      4. "category" is required for new issues. Pick the best fit from: Infrastructure, Public Safety, Education, Taxes, Healthcare, Environment.
+      5. If the input is purely conversational (e.g., "Hello", "Thanks"), return an empty actions array.
+      
+      Return valid JSON.
+    `;
+
     const userPrompt = `
       CONTEXT:
       Existing Issues: ${JSON.stringify(issues)}
       Existing Questions: ${JSON.stringify(questions)}
       
-      INPUT: "${sanitizedInput}"
+      USER INPUT: "${sanitizedInput}"
       
-      Return JSON with "actions" array. Types: match_issue, new_issue, match_question, new_question.
-      Categories: Infrastructure, Public Safety, Education, Taxes, Healthcare, Environment.
+      JSON RESPONSE FORMAT:
+      {
+        "actions": [
+          {
+            "type": "match_issue" | "new_issue" | "match_question" | "new_question",
+            "id": number (only for matches),
+            "issue": string (summarized text, only for new_issue),
+            "question": string (summarized text, only for new_question),
+            "category": "Infrastructure" | "Public Safety" | "Education" | "Taxes" | "Healthcare" | "Environment" (only for new_issue)
+          }
+        ]
+      }
     `;
 
     const aiRes = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -252,7 +274,7 @@ async function processUserMessage(userInput, platformUserId, messageHash) {
       let currentQuestionId = null;
 
       if (action.type === 'match_issue' && action.id) {
-        await pool.query('UPDATE issues SET count = count + 1 WHERE id = ? AND approved = TRUE', [action.id]);
+        await pool.query('UPDATE issues SET count = count + 1 WHERE id = ?', [action.id]);
         currentIssueId = action.id;
         summaryLog.push(`✅ Upvoted issue #${action.id}`);
       } 

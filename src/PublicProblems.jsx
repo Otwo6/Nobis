@@ -5,7 +5,9 @@ import {
   LogOut, 
   Lock, 
   Filter,
-  ListFilter
+  ListFilter,
+  CheckCircle,
+  XCircle
 } from 'lucide-react';
 
 const Nobis = () => {
@@ -29,7 +31,9 @@ const Nobis = () => {
   // --- FETCH DATA FROM SERVER ---
   const fetchData = async () => {
     try {
-      const res = await fetch('http://localhost:3001/api/data');
+      const res = await fetch('http://localhost:3001/api/data', {
+        credentials: 'include' // Include cookies
+      });
       if (!res.ok) throw new Error('Failed to fetch data');
       
       const data = await res.json();
@@ -37,6 +41,20 @@ const Nobis = () => {
       setQuestions(data.questions || []);
     } catch (e) {
       console.error("Connection Error:", e);
+    }
+  };
+
+  const fetchPendingIssues = async () => {
+    if (!isAuthenticated) return;
+    try {
+      const res = await fetch('http://localhost:3001/api/admin/pending-issues', {
+        credentials: 'include'
+      });
+      if (!res.ok) throw new Error('Failed to fetch pending issues');
+      const data = await res.json();
+      setPendingIssues(data.issues || []);
+    } catch (e) {
+      console.error("Error fetching pending issues:", e);
     }
   };
 
@@ -59,19 +77,19 @@ const Nobis = () => {
     return filtered.slice(0, displayLimit);
   }, [topIssues, selectedCategory, displayLimit]);
 
-  // --- LOGIN LOGIC ---
+  // --- LOGIN LOGIC (using cookies) ---
   const handleLogin = async () => {
     try {
       const response = await fetch('http://localhost:3001/api/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include', // Include cookies
         body: JSON.stringify({ username: 'admin', password: loginPassword })
       });
 
       const data = await response.json();
 
       if (data.success) {
-        localStorage.setItem('nobis_token', data.token);
         setIsAuthenticated(true);
         setShowLoginModal(false);
         setLoginPassword('');
@@ -83,17 +101,26 @@ const Nobis = () => {
     }
   };
 
+  const handleLogout = async () => {
+    try {
+      await fetch('http://localhost:3001/api/logout', {
+        method: 'POST',
+        credentials: 'include'
+      });
+      setIsAuthenticated(false);
+      setPendingIssues([]);
+    } catch (error) {
+      console.error("Logout failed:", error);
+    }
+  };
+
   // --- ADMIN Q&A LOGIC ---
   const handleAnswerQuestion = async (questionId) => {
     try {
-      const token = localStorage.getItem('nobis_token');
-
       await fetch('http://localhost:3001/api/answer', {
         method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({ id: questionId, answer: answerText })
       });
 
@@ -112,15 +139,11 @@ const Nobis = () => {
     if (!reason) return;
 
     try {
-      const token = localStorage.getItem('nobis_token');
       const res = await fetch('http://localhost:3001/api/resolve-issue', {
         method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        // Pass the actionType (resolved or removed) dynamically here
-        body: JSON.stringify({ issueId, reason, actionType }) 
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ issueId, reason, actionType })
       });
       
       if (res.ok) {
@@ -129,6 +152,43 @@ const Nobis = () => {
       }
     } catch (error) {
       alert(`Error during ${actionType} action.`);
+    }
+  };
+
+  const handleApproveIssue = async (issueId) => {
+    try {
+      const res = await fetch('http://localhost:3001/api/admin/approve-issue', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ issueId })
+      });
+      
+      if (res.ok) {
+        alert('Issue approved and now visible to public!');
+        await fetchPendingIssues();
+        await fetchData();
+      }
+    } catch (error) {
+      alert('Error approving issue.');
+    }
+  };
+
+  const handleRejectIssue = async (issueId) => {
+    try {
+      const res = await fetch('http://localhost:3001/api/admin/reject-issue', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ issueId })
+      });
+      
+      if (res.ok) {
+        alert('Issue rejected.');
+        await fetchPendingIssues();
+      }
+    } catch (error) {
+      alert('Error rejecting issue.');
     }
   };
 
@@ -151,7 +211,7 @@ const Nobis = () => {
                     Admin Mode
                   </span>
                   <button
-                    onClick={() => setIsAuthenticated(false)}
+                    onClick={handleLogout}
                     className="flex items-center gap-2 px-3 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 text-sm font-medium transition-colors"
                   >
                     <LogOut className="w-4 h-4" />
@@ -217,7 +277,7 @@ const Nobis = () => {
       )}
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        
+
         <div className="grid md:grid-cols-2 gap-8">
           
           {/* --- LEFT: ISSUES LIST --- */}

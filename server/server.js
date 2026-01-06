@@ -224,8 +224,8 @@ async function processUserMessage(userInput, platformUserId, messageHash) {
     // Sanitize input
     const sanitizedInput = userInput.replace(/ignore|override|system|assistant/gi, '').slice(0, 1000);
     
-    const [issues] = await pool.query('SELECT id, issue FROM issues');
-    const [questions] = await pool.query('SELECT id, question FROM questions');
+    const [issues] = await pool.query('SELECT id, issue FROM issues WHERE deleted_at IS NULL');
+    const [questions] = await pool.query('SELECT id, question FROM questions WHERE deleted_at IS NULL');
 
     const systemPrompt = `
       You are an intelligent intake assistant for a politician. 

@@ -178,35 +178,50 @@ app.post('/api/logout', (req, res) => {
 
 // --- ANTI-SPAM LOGIC (with encrypted storage) ---
 async function checkSpam(userId, platform, content) {
+  // 1. Create a deterministic hash for LOOKUPS (Searchable)
+  const userIdHash = crypto.createHash('sha256').update(userId).digest('hex');
+  
+  // 2. Encrypt the ID for STORAGE (Privacy) - Random IV is fine here now
   const encryptedUserId = encrypt(userId);
-  const hash = crypto.createHash('sha256').update(content.trim().toLowerCase()).digest('hex');
+
+  const messageHash = crypto.createHash('sha256').update(content.trim().toLowerCase()).digest('hex');
   const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
 
+  // CHECK 1: Duplicates
+  // We search using the HASH, not the encrypted string
   const [duplicates] = await pool.query(
-    'SELECT id FROM user_logs WHERE platform_user_id_encrypted = ? AND platform = ? AND message_hash = ?',
-    [encryptedUserId, platform, hash]
+    'SELECT id FROM user_logs WHERE user_id_hash = ? AND platform = ? AND message_hash = ?',
+    [userIdHash, platform, messageHash]
   );
   if (duplicates.length > 0) return { allowed: false, reason: "You've already submitted this exact message before." };
 
+  // CHECK 2: Time Limit (1 hour)
   const [recentLogs] = await pool.query(
-    'SELECT id FROM user_logs WHERE platform_user_id_encrypted = ? AND platform = ? AND created_at > ?',
-    [encryptedUserId, platform, oneHourAgo]
+    'SELECT id FROM user_logs WHERE user_id_hash = ? AND platform = ? AND created_at > ?',
+    [userIdHash, platform, oneHourAgo]
   );
   if (recentLogs.length > 0) return { allowed: false, reason: "You can only send one message per hour." };
 
+  // INSERT: Store both the Hash (for future lookups) and Encrypted ID (for decoding later)
   await pool.query(
-    'INSERT INTO user_logs (platform_user_id_encrypted, platform, message_hash) VALUES (?, ?, ?)',
-    [encryptedUserId, platform, hash]
+    'INSERT INTO user_logs (user_id_hash, platform_user_id_encrypted, platform, message_hash) VALUES (?, ?, ?, ?)',
+    [userIdHash, encryptedUserId, platform, messageHash]
   );
+  
   return { allowed: true };
 }
 
 // --- CORE LOGIC WITH VALIDATION & PENDING APPROVAL ---
 async function processUserMessage(userInput, platformUserId, messageHash) {
   try {
-    const encryptedUserId = encrypt(platformUserId);
+    // 1. Generate the Hash (Determinisitc - stays the same)
+    const userIdHash = crypto.createHash('sha256').update(platformUserId).digest('hex');
     
-    // Sanitize input to prevent prompt injection
+    // 2. Generate Encrypted ID (Random IV - unique every time)
+    // We only need this if we were inserting new rows, but here we are just updating.
+    // We will use the HASH to find the correct row to update.
+    
+    // Sanitize input
     const sanitizedInput = userInput.replace(/ignore|override|system|assistant/gi, '').slice(0, 1000);
     
     const [issues] = await pool.query('SELECT id, issue FROM issues');
@@ -300,17 +315,19 @@ async function processUserMessage(userInput, platformUserId, messageHash) {
         summaryLog.push(`✨ New Question: "${action.question}"`);
       }
 
+      // --- CRITICAL FIX HERE ---
+      // We use 'user_id_hash' to find the row, because 'platform_user_id_encrypted' changes every time we run the encrypt function.
       if (currentIssueId) {
         await pool.query(
-          'UPDATE user_logs SET issue_id = ? WHERE platform_user_id_encrypted = ? AND message_hash = ?',
-          [currentIssueId, encryptedUserId, messageHash]
+          'UPDATE user_logs SET issue_id = ? WHERE user_id_hash = ? AND message_hash = ?',
+          [currentIssueId, userIdHash, messageHash]
         );
       }
 
       if (currentQuestionId) {
         await pool.query(
-          'UPDATE user_logs SET question_id = ? WHERE platform_user_id_encrypted = ? AND message_hash = ?',
-          [currentQuestionId, encryptedUserId, messageHash]
+          'UPDATE user_logs SET question_id = ? WHERE user_id_hash = ? AND message_hash = ?',
+          [currentQuestionId, userIdHash, messageHash]
         );
       }
     }

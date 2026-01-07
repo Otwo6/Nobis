@@ -1,0 +1,10 @@
+{
+  "files": {
+    "main.js": "/nobis/static/js/main.80edcf82.js",
+    "index.html": "/nobis/index.html",
+    "main.80edcf82.js.map": "/nobis/static/js/main.80edcf82.js.map"
+  },
+  "entrypoints": [
+    "static/js/main.80edcf82.js"
+  ]
+}

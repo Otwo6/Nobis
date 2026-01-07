@@ -4,6 +4,7 @@ const cors = require('cors');
 const fetch = require('node-fetch');
 const mysql = require('mysql2/promise');
 const crypto = require('crypto');
+const { Client, GatewayIntentBits, Partials, ChannelType } = require('discord.js');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const rateLimit = require('express-rate-limit');
@@ -28,6 +29,7 @@ app.use(cookieParser());
 
 const PORT = 3001;
 const OPENAI_KEY = process.env.OPENAI_KEY;
+const DISCORD_TOKEN = process.env.DISCORD_BOT_TOKEN;
 const IG_USER_ACCESS_TOKEN = process.env.INSTAGRAM_USER_ACCESS_TOKEN;
 const JWT_SECRET = process.env.JWT_SECRET;
 const ENCRYPTION_KEY = Buffer.from(process.env.ENCRYPTION_KEY, 'hex');
@@ -215,6 +217,10 @@ async function processUserMessage(userInput, platformUserId, messageHash) {
     // 1. Generate the Hash (Determinisitc - stays the same)
     const userIdHash = crypto.createHash('sha256').update(platformUserId).digest('hex');
     
+    // 2. Generate Encrypted ID (Random IV - unique every time)
+    // We only need this if we were inserting new rows, but here we are just updating.
+    // We will use the HASH to find the correct row to update.
+    
     // Sanitize input
     const sanitizedInput = userInput.replace(/ignore|override|system|assistant/gi, '').slice(0, 1000);
     
@@ -298,7 +304,7 @@ async function processUserMessage(userInput, platformUserId, messageHash) {
           [action.category || 'Infrastructure', action.issue]
         );
         currentIssueId = result.insertId;
-        summaryLog.push(`✨ New Issue submitted: "${action.issue}"`);
+        summaryLog.push(`✨ New Issue submitted for review: "${action.issue}"`);
       } 
       else if (action.type === 'new_question' && action.question) {
         const [insertResult] = await pool.query(
@@ -309,6 +315,7 @@ async function processUserMessage(userInput, platformUserId, messageHash) {
         summaryLog.push(`✨ New Question: "${action.question}"`);
       }
 
+      // --- CRITICAL FIX HERE ---
       // We use 'user_id_hash' to find the row, because 'platform_user_id_encrypted' changes every time we run the encrypt function.
       if (currentIssueId) {
         await pool.query(
@@ -360,8 +367,10 @@ async function processNotificationQueue() {
 
 async function queueNotification(platform, userId, message) {
   notificationQueue.push(async () => {
-    // Only process for Instagram; ignore database logs from other platforms
-    if (platform === 'instagram') {
+    if (platform === 'discord') {
+      const discordUser = await client.users.fetch(userId);
+      await discordUser.send(message);
+    } else if (platform === 'instagram') {
       await sendInstagramMessage(userId, message);
     }
   });
@@ -381,24 +390,6 @@ async function sendInstagramMessage(recipientId, text) {
 }
 
 // --- INSTAGRAM WEBHOOKS ---
-// Verification Endpoint (Required for Meta App setup)
-app.get('/api/instagram/webhook', (req, res) => {
-    const mode = req.query['hub.mode'];
-    const token = req.query['hub.verify_token'];
-    const challenge = req.query['hub.challenge'];
-  
-    // Replace 'YOUR_VERIFY_TOKEN' with the string you set in the Meta dashboard
-    if (mode && token) {
-      if (mode === 'subscribe' && token === process.env.INSTAGRAM_VERIFY_TOKEN) {
-        console.log('WEBHOOK_VERIFIED');
-        res.status(200).send(challenge);
-      } else {
-        res.sendStatus(403);
-      }
-    }
-  });
-
-// Event Endpoint
 app.post('/api/instagram/webhook', async (req, res) => {
   const body = req.body;
   if (body.object === 'instagram') {
@@ -419,6 +410,28 @@ app.post('/api/instagram/webhook', async (req, res) => {
         await sendInstagramMessage(userId, `✅ Nobis Update\n${summary}`);
       }
     }
+  }
+});
+
+// --- DISCORD BOT ---
+const client = new Client({
+  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.DirectMessages, GatewayIntentBits.MessageContent],
+  partials: [Partials.Channel] 
+});
+
+client.on('messageCreate', async (message) => {
+  if (message.author.bot || message.channel.type !== ChannelType.DM) return;
+  try {
+    const spamCheck = await checkSpam(message.author.id, 'discord', message.content);
+    if (!spamCheck.allowed) {
+      return await message.reply(`⚠️ ${spamCheck.reason}`);
+    }
+
+    const messageHash = crypto.createHash('sha256').update(message.content.trim().toLowerCase()).digest('hex');
+    const summary = await processUserMessage(message.content, message.author.id, messageHash);
+    await message.reply(`✅ **Received.**\n${summary}`);
+  } catch (error) { 
+    await message.reply("❌ Error processing request."); 
   }
 });
 
@@ -495,4 +508,5 @@ app.post('/api/answer', authenticateToken, async (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
+  if (DISCORD_TOKEN) client.login(DISCORD_TOKEN);
 });

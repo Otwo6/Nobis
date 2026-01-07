@@ -25,6 +25,7 @@ const Nobis = () => {
   // --- DATA STATE ---
   const [topIssues, setTopIssues] = useState([]);
   const [questions, setQuestions] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
   // Added dummy pending issues state to prevent crash since it was referenced in original logic
   const [pendingIssues, setPendingIssues] = useState([]); 
 
@@ -34,6 +35,7 @@ const Nobis = () => {
 
   // --- FETCH DATA FROM SERVER ---
   const fetchData = async () => {
+    setIsLoading(true);
     try {
       const res = await fetch('http://localhost:3001/api/data', {
         credentials: 'include' // Include cookies
@@ -46,6 +48,8 @@ const Nobis = () => {
     } catch (e) {
       console.error("Connection Error:", e);
       // Fallback data for visualization if server is down (Removed for production, kept for safety in demo)
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -201,63 +205,71 @@ const Nobis = () => {
     <div className="min-h-screen bg-[#FDFBF7] font-sans text-slate-800">
       
       {/* --- HEADER SECTION --- */}
-      <header className="bg-[#0F1F3D] text-white shadow-lg relative z-20">
-        {/* Top Navigation Bar */}
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 flex justify-between items-center border-b border-white/10">
-          <div className="flex items-center gap-4">
-            <div className="bg-white/10 p-2 rounded-full border border-white/20">
-              {/* Placeholder for Seal/Logo */}
-              <div className="w-8 h-8 rounded-full bg-[#1a2e55] flex items-center justify-center font-serif font-bold text-[#C5A045]">
-                US
+      <header className="shadow-lg relative z-20">
+        
+        {/* 1. TOP BAR: IDENTITY (Dark Blue) */}
+        <div className="bg-[#0d274c] text-white">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 flex justify-between items-center">
+            <div className="flex items-center gap-4">
+              <div className="bg-white/10 p-2 rounded-full border border-white/20">
+                <div className="w-8 h-8 rounded-full bg-[#1a2e55] flex items-center justify-center font-serif font-bold text-[#C5A045]">
+                  US
+                </div>
+              </div>
+              <div>
+                <h1 className="text-lg font-serif font-bold tracking-wide">Rep. Alexandria Ocasio-Cortez</h1>
+                <p className="text-[10px] uppercase tracking-[0.2em] text-[#C5A045]">NY-14 • Nobis Platform</p>
               </div>
             </div>
+            
             <div>
-              <h1 className="text-lg font-serif font-bold tracking-wide">Rep. Alexandria Ocasio-Cortez</h1>
-              <p className="text-[10px] uppercase tracking-[0.2em] text-[#C5A045]">NY-14 • Nobis Platform</p>
-            </div>
-          </div>
-          
-          <div>
-            {isAuthenticated ? (
-              <div className="flex items-center gap-3">
-                <span className="text-xs font-bold text-[#C5A045] bg-[#C5A045]/10 px-3 py-1 rounded-full border border-[#C5A045]/50">
-                  ADMIN MODE ACTIVE
-                </span>
-                <button
-                  onClick={handleLogout}
-                  className="flex items-center gap-2 px-3 py-1.5 bg-white/10 text-white rounded hover:bg-white/20 text-xs uppercase tracking-wider transition-colors border border-white/20"
+              {isAuthenticated ? (
+                <div className="flex items-center gap-3">
+                  <span className="text-xs font-bold text-[#C5A045] bg-[#C5A045]/10 px-3 py-1 rounded-full border border-[#C5A045]/50">
+                    ADMIN MODE ACTIVE
+                  </span>
+                  <button
+                    onClick={handleLogout}
+                    className="flex items-center gap-2 px-3 py-1.5 bg-white/10 text-white rounded hover:bg-white/20 text-xs uppercase tracking-wider transition-colors border border-white/20"
+                  >
+                    <LogOut className="w-3 h-3" />
+                    Logout
+                  </button>
+                </div>
+              ) : (
+                <button 
+                  onClick={() => setShowLoginModal(true)}
+                  className="flex items-center gap-2 px-4 py-1.5 border border-white/30 text-white rounded hover:bg-white/10 text-xs font-medium uppercase tracking-wider transition-colors"
                 >
-                  <LogOut className="w-3 h-3" />
-                  Logout
+                  <Lock className="w-3 h-3" />
+                  Admin Login
                 </button>
-              </div>
-            ) : (
-              <button 
-                onClick={() => setShowLoginModal(true)}
-                className="flex items-center gap-2 px-4 py-1.5 border border-white/30 text-white rounded hover:bg-white/10 text-xs font-medium uppercase tracking-wider transition-colors"
-              >
-                <Lock className="w-3 h-3" />
-                Admin Login
-              </button>
-            )}
+              )}
+            </div>
           </div>
         </div>
 
-        {/* Search & Action Bar */}
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-5">
-            <div className="flex flex-col md:flex-row gap-4 items-center justify-between">
-                <div className="relative w-full md:max-w-xl">
-                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                        <Search className="h-5 w-5 text-[#0F1F3D]" />
+        {/* 2. GOLDEN SEPARATOR BAR */}
+        <div className="h-2 w-full bg-[#C5A045] relative z-30 shadow-sm"></div>
+
+        {/* 3. SEARCH AREA (White Background) */}
+        <div className="bg-[#06183c] border-b border-gray-200">
+            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-5">
+                <div className="flex flex-col md:flex-row gap-4 items-center justify-between">
+                    <div className="relative w-full md:max-w-xl">
+                        <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                            <Search className="h-5 w-5 text-gray-400" />
+                        </div>
+                        <input 
+                            type="text" 
+                            placeholder="Search issues & questions..." 
+                            className="block w-full pl-10 pr-3 py-3 border border-gray-300 rounded-lg leading-5 bg-gray-50 text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-[#C5A045] sm:text-sm transition-all"
+                        />
                     </div>
-                    <input 
-                        type="text" 
-                        placeholder="Search issues & questions..." 
-                        className="block w-full pl-10 pr-3 py-3 border-none rounded-lg leading-5 bg-[#FDFBF7] text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-[#C5A045] sm:text-sm shadow-inner"
-                    />
                 </div>
             </div>
         </div>
+
       </header>
 
       {/* --- LOGIN MODAL (Unchanged functionality, styling matched) --- */}
@@ -405,7 +417,7 @@ const Nobis = () => {
                 ))
               ) : (
                 <div className="text-center py-8 text-gray-500 italic font-serif">
-                   {topIssues.length === 0 ? "Loading issues..." : "No issues in this category."}
+                   {isLoading ? "Loading issues..." : "No issues in this category."}
                 </div>
               )}
             </div>
@@ -484,7 +496,7 @@ const Nobis = () => {
                 ))
               ) : (
                 <div className="text-center py-8 text-gray-500 italic font-serif">
-                   {questions.length === 0 ? "Loading questions..." : "No questions yet."}
+                   {isLoading ? "Loading questions..." : "No questions yet."}
                 </div>
               )}
             </div>

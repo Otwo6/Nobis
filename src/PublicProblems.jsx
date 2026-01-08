@@ -37,7 +37,7 @@ const Nobis = () => {
   const fetchData = async () => {
     setIsLoading(true);
     try {
-      const res = await fetch('http://localhost:3001/api/data', {
+      const res = await fetch('http://localhost:3005/api/data', {
         credentials: 'include' // Include cookies
       });
       if (!res.ok) throw new Error('Failed to fetch data');
@@ -56,7 +56,7 @@ const Nobis = () => {
   const fetchPendingIssues = async () => {
     if (!isAuthenticated) return;
     try {
-      const res = await fetch('http://localhost:3001/api/admin/pending-issues', {
+      const res = await fetch('http://localhost:3005/api/admin/pending-issues', {
         credentials: 'include'
       });
       if (!res.ok) throw new Error('Failed to fetch pending issues');
@@ -89,7 +89,7 @@ const Nobis = () => {
   // --- LOGIN LOGIC (using cookies) ---
   const handleLogin = async () => {
     try {
-      const response = await fetch('http://localhost:3001/api/login', {
+      const response = await fetch('http://localhost:3005/api/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include', // Include cookies
@@ -112,7 +112,7 @@ const Nobis = () => {
 
   const handleLogout = async () => {
     try {
-      await fetch('http://localhost:3001/api/logout', {
+      await fetch('http://localhost:3005/api/logout', {
         method: 'POST',
         credentials: 'include'
       });
@@ -126,7 +126,7 @@ const Nobis = () => {
   // --- ADMIN Q&A LOGIC ---
   const handleAnswerQuestion = async (questionId) => {
     try {
-      await fetch('http://localhost:3001/api/answer', {
+      await fetch('http://localhost:3005/api/answer', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -148,7 +148,7 @@ const Nobis = () => {
     if (!reason) return;
 
     try {
-      const res = await fetch('http://localhost:3001/api/resolve-issue', {
+      const res = await fetch('http://localhost:3005/api/resolve-issue', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -168,7 +168,7 @@ const Nobis = () => {
   // Kept here to maintain logic integrity.
   const handleApproveIssue = async (issueId) => {
     try {
-      const res = await fetch('http://localhost:3001/api/admin/approve-issue', {
+      const res = await fetch('http://localhost:3005/api/admin/approve-issue', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -186,7 +186,7 @@ const Nobis = () => {
 
   const handleRejectIssue = async (issueId) => {
     try {
-      const res = await fetch('http://localhost:3001/api/admin/reject-issue', {
+      const res = await fetch('http://localhost:3005/api/admin/reject-issue', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',

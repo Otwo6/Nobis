@@ -27,7 +27,7 @@ app.use(cors({
 app.use(express.json());
 app.use(cookieParser());
 
-const PORT = 3001;
+const PORT = 3005;
 const OPENAI_KEY = process.env.OPENAI_KEY;
 const DISCORD_TOKEN = process.env.DISCORD_BOT_TOKEN;
 const IG_USER_ACCESS_TOKEN = process.env.INSTAGRAM_USER_ACCESS_TOKEN;

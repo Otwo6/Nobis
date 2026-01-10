@@ -366,7 +366,6 @@ const Nobis = () => {
                     <div className="flex gap-4">
                         {/* Vote Counter */}
                         <div className="flex flex-col items-center justify-center min-w-[3rem]">
-                            <ArrowUp className="w-5 h-5 text-[#C5A045] mb-1" />
                             <span className="text-xl font-serif font-bold text-[#0F1F3D] leading-none">{issue.count}</span>
                             <span className="text-[10px] text-gray-400 uppercase tracking-wide mt-1">Votes</span>
                         </div>
@@ -378,20 +377,6 @@ const Nobis = () => {
                                     {issue.category}
                                 </span>
                                 <h3 className="font-serif font-bold text-gray-900 leading-tight">{issue.issue}</h3>
-                            </div>
-                            
-                            <div className="mt-3">
-                                <div className="flex justify-between text-xs font-bold text-[#C5A045] uppercase tracking-wider mb-1">
-                                    <span>Funding Progress</span>
-                                    <span>{Math.min(100, Math.round((issue.count / (topIssues[0]?.count || 1) * 100)))}%</span>
-                                </div>
-                                <div className="w-full bg-[#E5E0D0] h-2 rounded-full overflow-hidden">
-                                    <div 
-                                        className="bg-[#C5A045] h-full rounded-full" 
-                                        style={{ width: `${Math.min(100, (issue.count / (topIssues[0]?.count || 1) * 100))}%` }}
-                                    ></div>
-                                </div>
-                                <p className="text-xs text-gray-500 mt-1 italic">Status: In Review</p>
                             </div>
 
                             {/* Admin Controls */}

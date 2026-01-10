@@ -1,0 +1,513 @@
+/* --- Global Resets & Foundation --- */
+.nobis-page * {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+.nobis-page {
+    font-family: 'Georgia', 'Times New Roman', serif;
+    line-height: 1.6;
+    color: #1a1a1a;
+    overflow-x: hidden;
+    background: #0a0a0a;
+    padding-top: 80px; /* Accounts for fixed header */
+}
+
+/* --- Fixed Header --- */
+.nobis-page .header {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 80px;
+    background: #FDFBF7;
+    z-index: 1000;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 3rem;
+}
+
+.nobis-page .header-logo-container {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+.nobis-page .header-logo {
+    height: 50px;
+    width: 50px;
+}
+
+.nobis-page .header-title {
+    font-size: 1.8rem;
+    font-weight: 800;
+    color: #273e60;
+    font-family: 'Georgia', 'Times New Roman', serif;
+}
+
+.nobis-page .header-btn {
+    padding: 0.7rem 2rem;
+    font-size: 0.95rem;
+    font-weight: 700;
+    background: #273e60;
+    color: #c5a045;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    text-decoration: none;
+    display: inline-block;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+.nobis-page .header-btn:hover {
+    background: #1a2840;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(39, 62, 96, 0.3);
+}
+
+/* --- Strength Bar Animation --- */
+.nobis-page .strength-bar {
+    position: absolute;
+    top: 80px;
+    left: 0;
+    right: 0;
+    height: 6px;
+    background: linear-gradient(90deg, #273e60 0%, #c5a045 50%, #273e60 100%);
+    background-size: 200% 100%;
+    animation: shimmer 3s linear infinite;
+    z-index: 10;
+}
+
+@keyframes shimmer {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+}
+
+/* --- Hero Section --- */
+.nobis-page .hero {
+    min-height: 100vh;
+    background: linear-gradient(135deg, #273e60 0%, #1a2840 100%);
+    position: relative;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.nobis-page .hero::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: 
+        repeating-linear-gradient(90deg, transparent, transparent 50px, rgba(197, 160, 69, 0.03) 50px, rgba(197, 160, 69, 0.03) 51px),
+        repeating-linear-gradient(0deg, transparent, transparent 50px, rgba(197, 160, 69, 0.03) 50px, rgba(197, 160, 69, 0.03) 51px);
+    animation: gridMove 20s linear infinite;
+}
+
+.nobis-page .hero::after {
+    content: '';
+    position: absolute;
+    width: 600px;
+    height: 600px;
+    background: radial-gradient(circle, rgba(197, 160, 69, 0.15) 0%, transparent 70%);
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    animation: pulse 4s ease-in-out infinite;
+}
+
+.nobis-page .hero-content {
+    position: relative;
+    z-index: 2;
+    text-align: center;
+    padding: 2rem;
+    max-width: 1000px;
+    animation: fadeInUp 1s ease-out;
+}
+
+.nobis-page .hero-badge {
+    display: inline-block;
+    background: rgba(197, 160, 69, 0.2);
+    color: #c5a045;
+    padding: 0.5rem 1.5rem;
+    border-radius: 50px;
+    font-size: 0.9rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    margin-bottom: 2rem;
+    border: 2px solid #c5a045;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+.nobis-page h1 {
+    font-size: clamp(2.5rem, 6vw, 4.5rem);
+    font-weight: 900;
+    color: white;
+    margin-bottom: 1.5rem;
+    text-shadow: 0 4px 20px rgba(0,0,0,0.5);
+    line-height: 1.1;
+    letter-spacing: -1px;
+}
+
+.nobis-page .hero-subtitle {
+    font-size: clamp(1.2rem, 2.5vw, 1.6rem);
+    color: rgba(255,255,255,0.9);
+    margin-bottom: 3rem;
+    font-weight: 400;
+    max-width: 800px;
+    margin-left: auto;
+    margin-right: auto;
+    font-style: italic;
+}
+
+/* --- Buttons --- */
+.nobis-page .cta-buttons {
+    display: flex;
+    gap: 1.5rem;
+    justify-content: center;
+    flex-wrap: wrap;
+}
+
+.nobis-page .btn {
+    padding: 1.2rem 3rem;
+    font-size: 1.1rem;
+    font-weight: 700;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    text-decoration: none;
+    display: inline-block;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+.nobis-page .btn-primary {
+    background: #c5a045;
+    color: #273e60;
+    box-shadow: 0 10px 30px rgba(197, 160, 69, 0.3);
+}
+
+.nobis-page .btn-primary:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 15px 40px rgba(197, 160, 69, 0.5);
+    background: #d4b05a;
+}
+
+.nobis-page .btn-secondary {
+    background: transparent;
+    color: #c5a045;
+    border: 3px solid #c5a045;
+}
+
+.nobis-page .btn-secondary:hover {
+    background: rgba(197, 160, 69, 0.1);
+    transform: translateY(-3px);
+    border-color: #d4b05a;
+}
+
+/* --- Section Layout --- */
+.nobis-page .section {
+    padding: 6rem 2rem;
+    position: relative;
+}
+
+.nobis-page .section-header {
+    text-align: center;
+    margin-bottom: 4rem;
+}
+
+.nobis-page .section-subtitle {
+    font-size: 0.95rem;
+    text-transform: uppercase;
+    letter-spacing: 3px;
+    color: #c5a045;
+    font-weight: 700;
+    margin-bottom: 1rem;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+.nobis-page .section-title {
+    font-size: clamp(2rem, 4vw, 3.5rem);
+    font-weight: 900;
+    margin-bottom: 1rem;
+    line-height: 1.2;
+}
+
+/* --- Problem Section --- */
+.nobis-page .problem-section {
+    background: linear-gradient(180deg, #1a1a1a 0%, #0f0f0f 100%);
+    color: white;
+}
+
+.nobis-page .problem-section::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 4px;
+    background: linear-gradient(90deg, #273e60 0%, #c5a045 50%, #273e60 100%);
+}
+
+.nobis-page .pillars {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 2.5rem;
+    max-width: 1200px;
+    margin: 0 auto;
+}
+
+.nobis-page .pillar-card {
+    background: rgba(255,255,255,0.03);
+    border-radius: 8px;
+    padding: 3rem;
+    border: 2px solid rgba(197, 160, 69, 0.2);
+    transition: all 0.4s ease;
+    position: relative;
+    overflow: hidden;
+}
+
+.nobis-page .pillar-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 5px;
+    background: #c5a045;
+    transform: scaleX(0);
+    transition: transform 0.4s ease;
+}
+
+.nobis-page .pillar-card:hover {
+    transform: translateY(-10px);
+    background: rgba(197, 160, 69, 0.05);
+    border-color: #c5a045;
+    box-shadow: 0 20px 60px rgba(197, 160, 69, 0.15);
+}
+
+.nobis-page .pillar-card:hover::before { transform: scaleX(1); }
+
+.nobis-page .pillar-icon {
+    font-size: 4rem;
+    margin-bottom: 1.5rem;
+    display: block;
+}
+
+.nobis-page .pillar-title {
+    font-size: 1.8rem;
+    font-weight: 800;
+    margin-bottom: 1rem;
+    color: #c5a045;
+    font-family: Georgia, serif;
+}
+
+/* --- Solutions Section --- */
+.nobis-page .solutions-section { background: white; }
+.nobis-page .solutions-section .section-title { color: #273e60; }
+
+.nobis-page .feature-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 3rem;
+    max-width: 1200px;
+    margin: 0 auto;
+}
+
+.nobis-page .feature-card {
+    background: linear-gradient(135deg, #273e60 0%, #1a2840 100%);
+    border-radius: 8px;
+    padding: 3rem;
+    color: white;
+    transition: all 0.4s ease;
+    position: relative;
+    overflow: hidden;
+    border: 3px solid #c5a045;
+}
+
+.nobis-page .feature-card::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    right: 0;
+    width: 150px;
+    height: 150px;
+    background: radial-gradient(circle, rgba(197, 160, 69, 0.15) 0%, transparent 70%);
+    transition: all 0.6s ease;
+}
+
+.nobis-page .feature-card:hover::after { width: 300px; height: 300px; }
+
+.nobis-page .feature-card:hover {
+    transform: translateY(-10px);
+    box-shadow: 0 25px 60px rgba(39, 62, 96, 0.4);
+    border-color: #d4b05a;
+}
+
+.nobis-page .feature-number {
+    font-size: 5rem;
+    font-weight: 900;
+    color: #c5a045;
+    opacity: 0.3;
+    line-height: 1;
+    margin-bottom: 1rem;
+}
+
+/* --- Personas Section --- */
+.nobis-page .personas-section { background: #f5f5f5; }
+.nobis-page .personas-section .section-title { color: #273e60; }
+
+.nobis-page .persona-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 2.5rem;
+    max-width: 1200px;
+    margin: 0 auto;
+}
+
+.nobis-page .persona-card {
+    background: white;
+    border-radius: 8px;
+    padding: 3rem;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.08);
+    transition: all 0.3s ease;
+    border-left: 6px solid #273e60;
+    position: relative;
+}
+
+.nobis-page .persona-card:nth-child(2) { border-left-color: #c5a045; }
+
+.nobis-page .persona-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 15px 50px rgba(39, 62, 96, 0.15);
+}
+
+.nobis-page .persona-label {
+    font-size: 0.85rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    color: #273e60;
+    letter-spacing: 2px;
+    margin-bottom: 0.5rem;
+}
+
+/* --- Mission Section --- */
+.nobis-page .mission-section {
+    background: linear-gradient(135deg, #273e60 0%, #1a2840 100%);
+    color: white;
+    text-align: center;
+    position: relative;
+    overflow: hidden;
+}
+
+.nobis-page .mission-quote {
+    max-width: 900px;
+    margin: 0 auto;
+    font-size: clamp(1.4rem, 3vw, 2rem);
+    font-style: italic;
+    line-height: 1.8;
+    position: relative;
+    padding: 3rem 2rem;
+    font-family: Georgia, serif;
+}
+
+.nobis-page .mission-quote::before, .nobis-page .mission-quote::after {
+    content: '"';
+    font-size: 8rem;
+    position: absolute;
+    color: #c5a045;
+    opacity: 0.2;
+    font-family: Georgia, serif;
+}
+
+.nobis-page .mission-quote::before { top: -1rem; left: -1rem; }
+.nobis-page .mission-quote::after { bottom: -3rem; right: -1rem; }
+
+.nobis-page .mission-author {
+    margin-top: 2rem;
+    font-size: 1.2rem;
+    color: #c5a045;
+    font-weight: 700;
+    font-style: normal;
+}
+
+/* --- Final CTA --- */
+.nobis-page .final-cta {
+    background: linear-gradient(135deg, #c5a045 0%, #d4b05a 100%);
+    color: #273e60;
+    text-align: center;
+    padding: 6rem 2rem;
+    position: relative;
+    overflow: hidden;
+}
+
+.nobis-page .final-cta::before {
+    content: '';
+    position: absolute;
+    top: -50%;
+    left: -50%;
+    width: 200%;
+    height: 200%;
+    background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, transparent 70%);
+    animation: rotate 20s linear infinite;
+}
+
+@keyframes rotate {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+.nobis-page .final-cta-content { position: relative; z-index: 2; }
+.nobis-page .final-cta h2 { font-size: clamp(2.5rem, 5vw, 4rem); font-weight: 900; margin-bottom: 1rem; }
+
+/* --- Mobile Responsiveness --- */
+@media (max-width: 768px) {
+    .nobis-page .header { padding: 0 1.5rem; }
+    .nobis-page .header-title { font-size: 1.3rem; }
+    .nobis-page .header-logo { height: 40px; width: 40px; }
+    .nobis-page .header-btn { padding: 0.6rem 1.5rem; font-size: 0.85rem; }
+    .nobis-page .cta-buttons { flex-direction: column; align-items: stretch; }
+    .nobis-page .btn { width: 100%; }
+}
+
+/* --- Misc Animations --- */
+@keyframes pulse {
+    0%, 100% { transform: translate(-50%, -50%) scale(1); opacity: 0.5; }
+    50% { transform: translate(-50%, -50%) scale(1.2); opacity: 0.8; }
+}
+
+@keyframes gridMove {
+    0% { transform: translate(0, 0); }
+    100% { transform: translate(50px, 50px); }
+}
+
+.nobis-page .scroll-indicator {
+    position: absolute;
+    bottom: 2rem;
+    left: 50%;
+    transform: translateX(-50%);
+    animation: bounce 2s infinite;
+    z-index: 3;
+}
+
+@keyframes bounce {
+    0%, 20%, 50%, 80%, 100% { transform: translateX(-50%) translateY(0); }
+    40% { transform: translateX(-50%) translateY(-10px); }
+    60% { transform: translateX(-50%) translateY(-5px); }
+}
+
+.nobis-page .scroll-indicator svg {
+    width: 35px;
+    height: 35px;
+    fill: #c5a045;
+    opacity: 0.8;
+}

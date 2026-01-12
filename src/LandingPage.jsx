@@ -9,10 +9,10 @@ const NobisLanding = () => {
     <div className="nobis-page">
       <header className="header">
         <div className="header-logo-container">
-          <img src="/CockadeNobis.png" alt="Nobis Logo" className="header-logo" style={{ width: '8%', height: '8%', objectFit: 'contain' }} />
+          <img src="/CockadeNobis.png" alt="Nobis Logo" className="header-logo" />
           <span className="header-title">NOBIS</span>
         </div>
-        <a href="#dashboard" className="header-btn">Dashboard</a>
+        <a href="dashboard" className="header-btn">Dashboard</a>
       </header>
 
       <div className="strength-bar" />
@@ -20,13 +20,13 @@ const NobisLanding = () => {
       <section className="hero">
         <div className="hero-content">
           <div className="hero-badge">For the People</div>
-          <h1>Infrastructure for the People-Powered Campaign</h1>
+          <h1>Infrastructure for People-Powered Campaigns</h1>
           <p className="hero-subtitle">
-            Close the gap between the people and the platform. Stop constituent concerns from disappearing into the "Black Hole".
+            Closing the gap between the people and the platform. Stopping constituent concerns from disappearing into black holes.
           </p>
           <div className="cta-buttons">
-            <a href="#demo" className="btn btn-primary">Request a Demo</a>
-            <a href="#live" className="btn btn-secondary">View Live Dashboard</a>
+            <a href="#demo" className="btn btn-primary">Schedule a Demo</a>
+            <a href="#live" className="btn btn-secondary">View Dashboard</a>
           </div>
         </div>
         <div className="scroll-indicator">
@@ -38,10 +38,10 @@ const NobisLanding = () => {
 
       <section className="section problem-section">
         <div className="section-header">
-          <div className="section-subtitle">The Broken System</div>
+          <div className="section-subtitle">The System is Broken</div>
           <h2 className="section-title">
-            Current Political Tech is Built for Consultants.<br />
-            Nobis is Built for Neighbors.
+            Current Politics Focuses on the Elite.<br />
+            Nobis is Built for Our Neighbors.
           </h2>
         </div>
         <div className="pillars">
@@ -49,21 +49,21 @@ const NobisLanding = () => {
             <span className="pillar-icon">🕳️</span>
             <h3 className="pillar-title">The Black Hole</h3>
             <p className="pillar-text">
-              Messages vanish without a trace, leaving constituents feeling unheard and disconnected from their representatives. Democracy dies in silence.
+              When you call a representative, you only get to speak with interns. When you send an email, you won't get a timely response. This lack of transparency and representation leaves people feeling abandoned by the system.
             </p>
           </div>
           <div className="pillar-card">
             <span className="pillar-icon">⚖️</span>
-            <h3 className="pillar-title">The Manual Burden</h3>
+            <h3 className="pillar-title">The Burden</h3>
             <p className="pillar-text">
-              Staffers spend hours manually sorting thousands of DMs, emails, and calls—time that could be spent on real advocacy and organizing.
+              Staffers and interns spend hours manually sorting through thousands of data points from messages and phone calls. This time can be better spent strategizing future political movements and helping your constituents.
             </p>
           </div>
           <div className="pillar-card">
             <span className="pillar-icon">🔇</span>
-            <h3 className="pillar-title">Disconnected Progress</h3>
+            <h3 className="pillar-title">The Disconnect</h3>
             <p className="pillar-text">
-              Neighbors rarely know when their concerns actually lead to action, creating a cycle of mistrust, cynicism, and disengagement.
+              Neighbors rarely know when their concerns lead to action or progress. This creates a vicious cycle of mistrust, cynicism, and disengagement.
             </p>
           </div>
         </div>
@@ -77,16 +77,16 @@ const NobisLanding = () => {
         <div className="feature-grid">
           <div className="feature-card">
             <div className="feature-number">01</div>
-            <h3 className="feature-title">AI-Automated Intake</h3>
+            <h3 className="feature-title">AI-Automated Categorization</h3>
             <p className="feature-text">
-              Meet neighbors where they already are—on social media. Our AI categorizes DMs into actionable insights automatically. No manual sorting required. No voice unheard.
+              Meet neighbors where they already are, on social media. Our AI categorizes your constituents' DMs into insights automatically sorting your most vocal concerns. No voice is left unheard.
             </p>
           </div>
           <div className="feature-card">
             <div className="feature-number">02</div>
             <h3 className="feature-title">Public-Facing Transparency</h3>
             <p className="feature-text">
-              A live dashboard allows your district to see that their issues are being heard—and what their neighbors care about most. Democracy made visible. Power made accountable.
+              A live dashboard allows your district to see that their issues are being heard and what their neighbors care about most. Democracy made visible. Power made accountable.
             </p>
           </div>
           <div className="feature-card">
@@ -107,23 +107,23 @@ const NobisLanding = () => {
         <div className="persona-grid">
           <div className="persona-card">
             <div className="persona-label">For the Candidate</div>
-            <h3 className="persona-title">Real-Time Pulse of Your District</h3>
+            <h3 className="persona-title">Real-Time Look of Your District</h3>
             <p className="persona-text">
-              See exactly what your district needs, categorized by priority—Healthcare, Housing, Education, Workers' Rights, Climate Justice, and more.
+              See what your constituents' want, categorized by priority, Healthcare, Housing, Education, Workers' Rights, Climate Justice, and more.
             </p>
           </div>
           <div className="persona-card">
             <div className="persona-label">For Campaign Staff</div>
             <h3 className="persona-title">Zero Manual Data Entry</h3>
             <p className="persona-text">
-              AI handles the sorting, freeing you to focus on strategy, community advocacy, and organizing. Spend your time building relationships.
+              AI handles the sorting and categorization, freeing you to focus on strategy, community advocacy, and organizing. Spend your time building relationships instead of data sheets.
             </p>
           </div>
           <div className="persona-card">
             <div className="persona-label">For the Constituent</div>
             <h3 className="persona-title">True Accountability</h3>
             <p className="persona-text">
-              No apps to download. No hoops to jump through. Just message an account and see your concern reflected live on the public dashboard.
+              No apps to download. No hoops to jump through. Just message an account and see you and your neighbors' concerns reflected live on the public dashboard.
             </p>
           </div>
         </div>
@@ -144,7 +144,7 @@ const NobisLanding = () => {
         <div className="final-cta-content">
           <h2>Ready to Build a More Democratic Office?</h2>
           <p>Join our beta program and lead the most transparent, accountable campaign in your district.</p>
-          <a href="#beta" className="btn btn-primary">Become a Beta Partner</a>
+          <a href="#beta" className="btn btn-primary">Schedule a Demo</a>
         </div>
       </section>
     </div>

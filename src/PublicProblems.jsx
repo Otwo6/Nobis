@@ -9,7 +9,10 @@ import {
   ArrowUp,
   Search,
   AlertCircle,
-  HelpCircle
+  HelpCircle,
+  CheckCircle,
+  CheckCircle2,
+  Circle
 } from 'lucide-react';
 
 const Nobis = () => {
@@ -18,9 +21,15 @@ const Nobis = () => {
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [loginPassword, setLoginPassword] = useState('');
 
-  // --- DISPLAY CONTROLS ---
+  // --- DISPLAY CONTROLS (Issues) ---
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [displayLimit, setDisplayLimit] = useState(5);
+  const [isViewAll, setIsViewAll] = useState(false);
+
+  // --- DISPLAY CONTROLS (Questions) ---
+  const [questionLimit, setQuestionLimit] = useState(5);
+  const [isViewAllQuestions, setIsViewAllQuestions] = useState(false);
+  const [answerStatusFilter, setAnswerStatusFilter] = useState('All');
 
   // --- DATA STATE ---
   const [topIssues, setTopIssues] = useState([]);
@@ -83,8 +92,22 @@ const Nobis = () => {
       filtered = filtered.filter(issue => issue.category === selectedCategory);
     }
     filtered.sort((a, b) => b.count - a.count);
-    return filtered.slice(0, displayLimit);
-  }, [topIssues, selectedCategory, displayLimit]);
+    
+    return isViewAll ? filtered : filtered.slice(0, displayLimit);
+  }, [topIssues, selectedCategory, displayLimit, isViewAll]);
+
+  // --- COMPUTED DATA (Questions) ---
+  const visibleQuestions = useMemo(() => {
+    let filtered = [...questions]; 
+    if (answerStatusFilter === 'Answered') {
+      filtered = filtered.filter(q => q.answered);
+    } else if (answerStatusFilter === 'Unanswered') {
+      filtered = filtered.filter(q => !q.answered);
+    }
+    filtered.sort((a, b) => b.askedCount - a.askedCount);
+
+    return isViewAllQuestions ? filtered : filtered.slice(0, questionLimit);
+  }, [questions, answerStatusFilter, questionLimit, isViewAllQuestions]);
 
   // --- LOGIN LOGIC (using cookies) ---
   const handleLogin = async () => {
@@ -164,42 +187,13 @@ const Nobis = () => {
     }
   };
 
-  // These functions were in the original logic but not used in the render provided. 
-  // Kept here to maintain logic integrity.
-  const handleApproveIssue = async (issueId) => {
-    try {
-      const res = await fetch('http://localhost:3005/api/admin/approve-issue', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ issueId })
-      });
-      if (res.ok) {
-        alert('Issue approved and now visible to public!');
-        await fetchPendingIssues();
-        await fetchData();
-      }
-    } catch (error) {
-      alert('Error approving issue.');
-    }
-  };
+  useEffect(() => {
+    setIsViewAll(false);
+  }, [selectedCategory, displayLimit]);
 
-  const handleRejectIssue = async (issueId) => {
-    try {
-      const res = await fetch('http://localhost:3005/api/admin/reject-issue', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ issueId })
-      });
-      if (res.ok) {
-        alert('Issue rejected.');
-        await fetchPendingIssues();
-      }
-    } catch (error) {
-      alert('Error rejecting issue.');
-    }
-  };
+  useEffect(() => {
+    setIsViewAllQuestions(false);
+  }, [answerStatusFilter, questionLimit]);
 
   return (
     <div className="min-h-screen bg-[#FDFBF7] font-sans text-slate-800">
@@ -408,82 +402,139 @@ const Nobis = () => {
             </div>
             
             <div className="bg-[#FDFBF7] p-3 text-center border-t border-[#E5E0D0]">
-                <button className="text-xs font-bold text-[#0F1F3D] uppercase tracking-widest hover:underline">View All Issues</button>
+                <button
+                  onClick={() => setIsViewAll(!isViewAll)}
+                  className="text-xs font-bold text-[#0F1F3D] uppercase tracking-widest hover:underline"
+                >
+                  {isViewAll ? "Show Top Priorities" : "View All Issues"}
+                </button>
             </div>
           </div>
 
-          {/* --- RIGHT: QUESTIONS LIST (Matches "Constituent Questions" Card) --- */}
+          {/* --- RIGHT: QUESTIONS LIST --- */}
           <div className="bg-white rounded-xl shadow-md border border-gray-200 overflow-hidden h-fit">
-            <div className="p-6 border-b border-[#E5E0D0]">
+            {/* Card Header with Logic Filters */}
+            <div className="p-6 pb-2 border-b border-[#E5E0D0]">
+              <div className="flex flex-col gap-4">
                 <div className="flex items-center gap-2">
-                    <MessageSquare className="w-5 h-5 text-[#0F1F3D]" />
-                    <h2 className="text-xl font-serif font-bold text-[#0F1F3D]">Constituent Questions</h2>
+                  <MessageSquare className="w-5 h-5 text-[#0F1F3D]" />
+                  <h2 className="text-xl font-serif font-bold text-[#0F1F3D]">Constituent Questions</h2>
                 </div>
+
+                {/* NEW FILTERS ROW */}
+                <div className="flex gap-2">
+                  {/* Answer Status Filter */}
+                  <div className="relative flex-1">
+                    <Filter className="absolute left-3 top-2.5 w-4 h-4 text-[#8a7f6b]" />
+                    <select
+                      value={answerStatusFilter}
+                      onChange={(e) => setAnswerStatusFilter(e.target.value)}
+                      className="w-full pl-9 pr-2 py-2 border border-[#E5E0D0] rounded bg-[#FDFBF7] text-sm text-[#0F1F3D] font-medium focus:outline-none focus:border-[#C5A045] transition-all"
+                    >
+                      <option value="All">All Questions</option>
+                      <option value="Answered">Answered</option>
+                      <option value="Unanswered">Unanswered</option>
+                    </select>
+                  </div>
+
+                  {/* Question Display Limit */}
+                  <div className="relative w-28">
+                    <select
+                      value={questionLimit}
+                      onChange={(e) => setQuestionLimit(Number(e.target.value))}
+                      className="w-full pl-3 pr-2 py-2 border border-[#E5E0D0] rounded bg-[#FDFBF7] text-sm text-[#0F1F3D] font-medium focus:outline-none focus:border-[#C5A045] transition-all"
+                    >
+                      <option value={5}>Top 5</option>
+                      <option value={10}>Top 10</option>
+                      <option value={20}>Top 20</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
             </div>
 
+            {/* Question List Area */}
             <div className="p-6 space-y-6 bg-[#FDFBF7] min-h-[400px]">
-              {questions.length > 0 ? (
-                questions.map((q) => (
+              {visibleQuestions.length > 0 ? (
+                visibleQuestions.map((q) => (
                   <div key={q.id} className="bg-[#F9F7F1] border border-[#E5E0D0] rounded-xl p-5 shadow-sm">
                     {/* Question Header */}
                     <div className="flex justify-between items-start mb-3">
-                         <h3 className="font-serif font-bold text-gray-900 text-sm">{q.question}</h3>
-                         <span className={`text-[10px] uppercase font-bold px-2 py-1 rounded-full ${q.answered ? 'bg-[#d9cba0] text-[#5c4d26]' : 'bg-[#e0d6c2] text-[#7a6e5a]'}`}>
-                            {q.answered ? 'Answered' : 'Pending'}
-                         </span>
+                      <div className="flex flex-col gap-1">
+                        <h3 className="font-serif font-bold text-gray-900 text-sm leading-tight">{q.question}</h3>
+                        <span className="text-[9px] text-gray-400 font-bold uppercase tracking-tighter">Asked {q.askedCount} times</span>
+                      </div>
+                      <span className={`text-[10px] uppercase font-bold px-2 py-1 rounded-full whitespace-nowrap ${q.answered ? 'bg-[#d9cba0] text-[#5c4d26]' : 'bg-[#e0d6c2] text-[#7a6e5a]'}`}>
+                        {q.answered ? 'Answered' : 'Pending'}
+                      </span>
                     </div>
 
                     {/* Answer Section */}
-                    <div className="bg-white border border-[#E5E0D0] rounded-lg p-4 relative">
-                        {/* Triangle for chat bubble look */}
-                        <div className="absolute -top-2 left-6 w-4 h-4 bg-white border-t border-l border-[#E5E0D0] transform rotate-45"></div>
-                        
-                        {q.answered ? (
-                            <div className="text-sm text-gray-700">
-                                <span className="font-bold text-green-700 mr-2">Reply:</span>
-                                {q.answer}
-                            </div>
-                        ) : (
-                            <div className="text-sm text-gray-400 italic">
-                                <span className="font-bold text-gray-300 mr-2">Reply:</span>
-                                No reply yet
-                            </div>
-                        )}
+                    <div className="bg-white border border-[#E5E0D0] rounded-lg p-4 relative shadow-inner">
+                      {/* Triangle for chat bubble look */}
+                      <div className="absolute -top-2 left-6 w-4 h-4 bg-white border-t border-l border-[#E5E0D0] transform rotate-45"></div>
 
-                        {isAuthenticated && (
-                            <div className="mt-3 pt-2 border-t border-gray-100">
-                                {editingQuestion === q.id ? (
-                                <div className="space-y-2">
-                                    <textarea
-                                    value={answerText}
-                                    onChange={(e) => setAnswerText(e.target.value)}
-                                    className="w-full p-2 text-sm border border-gray-300 rounded focus:border-[#C5A045] outline-none"
-                                    placeholder="Write official response..."
-                                    rows={3}
-                                    />
-                                    <div className="flex gap-2 justify-end">
-                                    <button onClick={() => setEditingQuestion(null)} className="text-gray-500 text-xs uppercase font-bold px-3 py-1">Cancel</button>
-                                    <button onClick={() => handleAnswerQuestion(q.id)} className="bg-[#0F1F3D] text-white px-4 py-1 rounded text-xs uppercase font-bold">Save Response</button>
-                                    </div>
-                                </div>
-                                ) : (
-                                <button 
-                                    onClick={() => { setEditingQuestion(q.id); setAnswerText(q.answer); }}
-                                    className="text-xs text-[#C5A045] font-bold uppercase tracking-wider hover:underline"
-                                >
-                                    {q.answered ? 'Edit Response' : 'Write Response'}
+                      {q.answered ? (
+                        <div className="text-sm text-gray-700">
+                          <span className="font-bold text-green-700 mr-2">Reply:</span>
+                          {q.answer}
+                        </div>
+                      ) : (
+                        <div className="text-sm text-gray-400 italic">
+                          <span className="font-bold text-gray-300 mr-2">Reply:</span>
+                          No official response yet
+                        </div>
+                      )}
+
+                      {/* Admin Controls - Only visible if logged in */}
+                      {isAuthenticated && (
+                        <div className="mt-3 pt-2 border-t border-gray-100">
+                          {editingQuestion === q.id ? (
+                            <div className="space-y-2">
+                              <textarea
+                                value={answerText}
+                                onChange={(e) => setAnswerText(e.target.value)}
+                                className="w-full p-2 text-sm border border-gray-300 rounded focus:border-[#C5A045] outline-none font-sans"
+                                placeholder="Write official response..."
+                                rows={3}
+                              />
+                              <div className="flex gap-2 justify-end">
+                                <button onClick={() => setEditingQuestion(null)} className="text-gray-500 text-xs uppercase font-bold px-3 py-1 hover:text-gray-800 transition-colors">
+                                  Cancel
                                 </button>
-                                )}
+                                <button onClick={() => handleAnswerQuestion(q.id)} className="bg-[#0F1F3D] text-white px-4 py-1 rounded text-xs uppercase font-bold hover:bg-[#1a2e55] transition-colors">
+                                  Save Response
+                                </button>
+                              </div>
                             </div>
-                        )}
+                          ) : (
+                            <button
+                              onClick={() => { setEditingQuestion(q.id); setAnswerText(q.answer); }}
+                              className="text-xs text-[#C5A045] font-bold uppercase tracking-wider hover:underline"
+                            >
+                              {q.answered ? 'Edit Official Response' : 'Draft Official Response'}
+                            </button>
+                          )}
+                        </div>
+                      )}
                     </div>
                   </div>
                 ))
               ) : (
-                <div className="text-center py-8 text-gray-500 italic font-serif">
-                   {isLoading ? "Loading questions..." : "No questions yet."}
+                <div className="text-center py-12 text-gray-500 italic font-serif bg-white/50 rounded-lg border-2 border-dashed border-gray-200">
+                  {isLoading ? "Fetching data from archives..." : "No questions found matching these filters."}
                 </div>
               )}
+            </div>
+
+            {/* Footer Toggle */}
+            <div className="bg-[#FDFBF7] p-3 text-center border-t border-[#E5E0D0]">
+              <button
+                onClick={() => setIsViewAllQuestions(!isViewAllQuestions)}
+                className="text-xs font-bold text-[#0F1F3D] uppercase tracking-widest hover:underline"
+              >
+                {isViewAllQuestions ? "Collapse to Top Questions" : `View All ${questions.length} Questions`}
+              </button>
             </div>
           </div>
 

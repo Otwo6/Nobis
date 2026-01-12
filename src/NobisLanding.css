@@ -39,6 +39,8 @@
 .nobis-page .header-logo {
     height: 50px;
     width: 50px;
+	min-width: 50px;
+	object-fit: contain;
 }
 
 .nobis-page .header-title {
@@ -274,6 +276,7 @@
     transition: all 0.4s ease;
     position: relative;
     overflow: hidden;
+	text-align: center;
 }
 
 .nobis-page .pillar-card::before {
@@ -459,6 +462,14 @@
     height: 200%;
     background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, transparent 70%);
     animation: rotate 20s linear infinite;
+}
+
+.nobis-page .final-cta p {
+    margin-bottom: 2rem;
+    font-size: 1.2rem;
+    max-width: 700px;
+    margin-left: auto;
+    margin-right: auto;
 }
 
 @keyframes rotate {

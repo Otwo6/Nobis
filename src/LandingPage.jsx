@@ -1,9 +1,40 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import './NobisLanding.css';
 
 const NobisLanding = () => {
-  // Logo SVG data URI stored as a constant for cleanliness
-  const logoSvg = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200'%3E%3Ccircle cx='100' cy='100' r='95' fill='%23273e60'/%3E%3Ccircle cx='100' cy='100' r='90' fill='none' stroke='%23FDFBF7' stroke-width='3'/%3E%3Ccircle cx='100' cy='100' r='85' fill='none' stroke='%23FDFBF7' stroke-width='2'/%3E%3Cpath d='M 100 30 Q 120 50 130 70 Q 135 85 130 100 Q 125 120 115 135 Q 100 150 85 145 Q 70 140 65 125 Q 60 110 65 95 Q 70 80 75 70 Q 80 60 85 50 Q 90 40 100 30 Z' fill='%232d5a7b'/%3E%3Ccircle cx='110' cy='65' r='12' fill='%23FDFBF7'/%3E%3Ccircle cx='110' cy='65' r='6' fill='%231a1a1a'/%3E%3Cpath d='M 95 45 Q 90 40 85 42' fill='none' stroke='%232d5a7b' stroke-width='3' stroke-linecap='round'/%3E%3Cpath d='M 120 50 Q 125 47 130 50' fill='none' stroke='%232d5a7b' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E";
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [formData, setFormData] = useState({ name: '', email: '', organization: '' });
+  const [submitted, setSubmitted] = useState(false);
+
+  const toggleModal = (e) => {
+    if (e) e.preventDefault();
+    setIsModalOpen(!isModalOpen);
+    setSubmitted(false);
+  };
+
+  useEffect(() => {
+    if (isModalOpen) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = 'unset';
+    }
+  }, [isModalOpen]);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+
+    const response = await fetch("https://formspree.io/f/xqeekkga", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(formData),
+    });
+
+    if (response.ok) {
+      setSubmitted(true);
+    } else {
+      alert("Something went wrong. Please try again!");
+    }
+  };
 
   return (
     <div className="nobis-page">
@@ -25,7 +56,7 @@ const NobisLanding = () => {
             Closing the gap between the people and the platform. Stopping constituent concerns from disappearing into black holes.
           </p>
           <div className="cta-buttons">
-            <a href="#demo" className="btn btn-primary">Schedule a Demo</a>
+            <button onClick={toggleModal} className="btn btn-primary">Schedule a Demo</button>
             <a href="#live" className="btn btn-secondary">View Dashboard</a>
           </div>
         </div>
@@ -144,9 +175,58 @@ const NobisLanding = () => {
         <div className="final-cta-content">
           <h2>Ready to Build a More Democratic Office?</h2>
           <p>Join our beta program and lead the most transparent, accountable campaign in your district.</p>
-          <a href="#beta" className="btn btn-primary">Schedule a Demo</a>
+          <button onClick={toggleModal} className="btn btn-primary">Schedule a Demo</button>
         </div>
       </section>
+
+      {isModalOpen && (
+        <div className="modal-overlay" onClick={toggleModal}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <button className="modal-close" onClick={toggleModal}>&times;</button>
+            
+            {!submitted ? (
+              <div className="modal-inner">
+                <h3>Request a Nobis Demo</h3>
+                <p>Join the future of constituent engagement.</p>
+                <form onSubmit={handleSubmit} className="modal-form">
+                  <div className="form-group">
+                    <label>Full Name</label>
+                    <input 
+                      type="text" 
+                      required 
+                      onChange={(e) => setFormData({...formData, name: e.target.value})}
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label>Campaign Email</label>
+                    <input 
+                      type="email" 
+                      required 
+                      onChange={(e) => setFormData({...formData, email: e.target.value})}
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label>Organization / District</label>
+                    <input 
+                      type="text" 
+                      required 
+                      onChange={(e) => setFormData({...formData, org: e.target.value})}
+                    />
+                  </div>
+                  <button type="submit" className="btn btn-primary btn-block">Send Request</button>
+                </form>
+              </div>
+            ) : (
+              <div className="modal-success">
+                <div className="success-icon">✓</div>
+                <h3>Request Sent!</h3>
+                <p>Thanks, {formData.name}. We'll reach out to <strong>{formData.email}</strong> shortly.</p>
+                <button onClick={toggleModal} className="btn btn-secondary">Close</button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 };

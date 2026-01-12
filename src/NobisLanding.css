@@ -472,6 +472,99 @@
     margin-right: auto;
 }
 
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.7); /* Darkens the background */
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 2000;
+  backdrop-filter: blur(4px); /* Modern blur effect */
+}
+
+/* Modal Content Box */
+.modal-content {
+  background: #FDFBF7;
+  padding: 40px;
+  border-radius: 16px;
+  width: 90%;
+  max-width: 500px;
+  position: relative;
+  box-shadow: 0 20px 40px rgba(0,0,0,0.3);
+  animation: modalFadeIn 0.3s ease-out;
+}
+
+@keyframes modalFadeIn {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.modal-close {
+  position: absolute;
+  top: 15px;
+  right: 20px;
+  background: none;
+  border: none;
+  font-size: 2rem;
+  cursor: pointer;
+  color: #273e60;
+}
+
+.modal-inner h3 {
+  color: #273e60;
+  margin-bottom: 10px;
+  font-size: 1.8rem;
+}
+
+/* Form Styling */
+.modal-form {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  margin-top: 25px;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  text-align: left;
+  gap: 5px;
+}
+
+.form-group label {
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: #555;
+}
+
+.form-group input {
+  padding: 12px;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  font-size: 1rem;
+}
+
+.btn-block {
+  width: 100%;
+  margin-top: 10px;
+}
+
+/* Success State */
+.modal-success {
+  text-align: center;
+  padding: 20px 0;
+}
+
+.success-icon {
+  font-size: 3rem;
+  color: #2d5a7b;
+  margin-bottom: 20px;
+}
+
 @keyframes rotate {
     0% { transform: rotate(0deg); }
     100% { transform: rotate(360deg); }

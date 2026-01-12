@@ -31,6 +31,9 @@ const Nobis = () => {
   const [isViewAllQuestions, setIsViewAllQuestions] = useState(false);
   const [answerStatusFilter, setAnswerStatusFilter] = useState('All');
 
+  // --- SEARCH QUERY ---
+  const [searchQuery, setSearchQuery] = useState('');
+
   // --- DATA STATE ---
   const [topIssues, setTopIssues] = useState([]);
   const [questions, setQuestions] = useState([]);
@@ -87,14 +90,22 @@ const Nobis = () => {
   }, [topIssues]);
 
   const visibleIssues = useMemo(() => {
-    let filtered = topIssues;
+    let filtered = [...topIssues];
     if (selectedCategory !== 'All') {
       filtered = filtered.filter(issue => issue.category === selectedCategory);
     }
+
+    if(searchQuery.trim() !== '') {
+      const query = searchQuery.toLowerCase();
+      filtered = filtered.filter(item =>
+        item.issue.toLowerCase().includes(query) ||
+        item.category.toLowerCase().includes(query)
+      );
+    }
+
     filtered.sort((a, b) => b.count - a.count);
-    
     return isViewAll ? filtered : filtered.slice(0, displayLimit);
-  }, [topIssues, selectedCategory, displayLimit, isViewAll]);
+  }, [topIssues, selectedCategory, displayLimit, isViewAll, searchQuery]);
 
   // --- COMPUTED DATA (Questions) ---
   const visibleQuestions = useMemo(() => {
@@ -104,10 +115,18 @@ const Nobis = () => {
     } else if (answerStatusFilter === 'Unanswered') {
       filtered = filtered.filter(q => !q.answered);
     }
-    filtered.sort((a, b) => b.askedCount - a.askedCount);
 
+    if(searchQuery.trim() !== '') {
+      const query = searchQuery.toLowerCase();
+      filtered = filtered.filter(q =>
+        q.question.toLowerCase().includes(query) ||
+        (q.answer && q.answer.toLowerCase().includes(query))
+      );
+    }
+
+    filtered.sort((a, b) => b.askedCount - a.askedCount);
     return isViewAllQuestions ? filtered : filtered.slice(0, questionLimit);
-  }, [questions, answerStatusFilter, questionLimit, isViewAllQuestions]);
+  }, [questions, answerStatusFilter, questionLimit, isViewAllQuestions, searchQuery]);
 
   // --- LOGIN LOGIC (using cookies) ---
   const handleLogin = async () => {
@@ -205,11 +224,9 @@ const Nobis = () => {
         <div className="bg-[#0d274c] text-white">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 flex justify-between items-center">
             <div className="flex items-center gap-4">
-              <div className="bg-white/10 p-2 rounded-full border border-white/20">
-                <div className="w-8 h-8 rounded-full bg-[#1a2e55] flex items-center justify-center font-serif font-bold text-[#C5A045]">
-                  US
-                </div>
-              </div>
+              <a href='/'>
+                <img src="/CockadeNobis2.png" alt="Nobis Logo" className="w-10 h-10" />
+              </a>
               <div>
                 <h1 className="text-lg font-serif font-bold tracking-wide">Rep. Alexandria Ocasio-Cortez</h1>
                 <p className="text-[10px] uppercase tracking-[0.2em] text-[#C5A045]">NY-14 • Nobis Platform</p>
@@ -246,7 +263,7 @@ const Nobis = () => {
         {/* 2. GOLDEN SEPARATOR BAR */}
         <div className="h-2 w-full bg-[#C5A045] relative z-30 shadow-sm"></div>
 
-        {/* 3. SEARCH AREA (White Background) */}
+        {/* 3. SEARCH AREA */}
         <div className="bg-[#06183c] border-b border-gray-200">
             <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-5">
                 <div className="flex flex-col md:flex-row gap-4 items-center justify-between">
@@ -256,9 +273,19 @@ const Nobis = () => {
                         </div>
                         <input 
                             type="text" 
-                            placeholder="Search issues & questions..." 
+                            placeholder="Search issues, categories, or responses..." 
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
                             className="block w-full pl-10 pr-3 py-3 border border-gray-300 rounded-lg leading-5 bg-gray-50 text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-[#C5A045] sm:text-sm transition-all"
                         />
+                        {searchQuery && (
+                          <button 
+                            onClick={() => setSearchQuery('')}
+                            className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600"
+                          >
+                            ×
+                          </button>
+                        )}
                     </div>
                 </div>
             </div>

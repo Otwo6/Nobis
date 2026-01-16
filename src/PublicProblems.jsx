@@ -228,8 +228,8 @@ const Nobis = () => {
                 <img src="/CockadeNobis2.png" alt="Nobis Logo" className="w-10 h-10" />
               </a>
               <div>
-                <h1 className="text-lg font-serif font-bold tracking-wide">Rep. Alexandria Ocasio-Cortez</h1>
-                <p className="text-[10px] uppercase tracking-[0.2em] text-[#C5A045]">NY-14 • Nobis Platform</p>
+                <h1 className="text-lg font-serif font-bold tracking-wide">Rep. Politician Name</h1>
+                <p className="text-[10px] uppercase tracking-[0.2em] text-[#C5A045]">US-0 • Nobis Platform</p>
               </div>
             </div>
             

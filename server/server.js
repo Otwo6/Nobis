@@ -10,6 +10,9 @@ const jwt = require('jsonwebtoken');
 const rateLimit = require('express-rate-limit');
 const cookieParser = require('cookie-parser');
 const { z } = require('zod');
+const imap = require('imap-simple');
+const { simpleParser } = require('mailparser');
+const nodemailer = require('nodemailer');
 
 // --- CRITICAL: Fail fast if required secrets are missing ---
 if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 32) {
@@ -33,6 +36,29 @@ const DISCORD_TOKEN = process.env.DISCORD_BOT_TOKEN;
 const IG_USER_ACCESS_TOKEN = process.env.INSTAGRAM_USER_ACCESS_TOKEN;
 const JWT_SECRET = process.env.JWT_SECRET;
 const ENCRYPTION_KEY = Buffer.from(process.env.ENCRYPTION_KEY, 'hex');
+
+const emailConfig = {
+  imap: {
+    user: process.env.EMAIL_USER,
+    password: process.env.EMAIL_PASS,
+    host: process.env.EMAIL_HOST,
+    port: 993,
+    tls: true,
+    authTimeout: 15000,
+    tlsOptions: { rejectUnauthorized: false }
+  },
+  smtp: {
+    host: process.env.EMAIL_SMTP_HOST,
+    port: 465,
+    secure: true,
+    auth: {
+      user: process.env.EMAIL_USER,
+      pass: process.env.EMAIL_PASS
+    }
+  }
+};
+
+const mailTransporter = nodemailer.createTransport(emailConfig.smtp);
 
 // --- ENCRYPTION UTILITIES ---
 function encrypt(text) {
@@ -120,7 +146,7 @@ const aiActionSchema = z.object({
     id: z.number().optional(),
     question: z.string().max(500).optional(),
     issue: z.string().max(500).optional(),
-    category: z.enum(['Infrastructure', 'Public Safety', 'Education', 'Taxes', 'Healthcare', 'Environment']).optional()
+    category: z.enum(['Infrastructure', 'Public Safety', 'Education', 'Taxes', 'Healthcare', 'Environment', 'Economy']).optional()
   }))
 });
 
@@ -235,7 +261,7 @@ async function processUserMessage(userInput, platformUserId, messageHash) {
       1. Analyze the 'Existing Issues' and 'Existing Questions' lists provided in the context.
       2. If the user input implies a meaning semantically identical to an existing item, return a "match_issue" or "match_question" with the corresponding ID.
       3. If the input is a valid concern or inquiry but does NOT match existing items, create a "new_issue" or "new_question".
-      4. "category" is required for new issues. Pick the best fit from: Infrastructure, Public Safety, Education, Taxes, Healthcare, Environment.
+      4. "category" is required for new issues. Pick the best fit from: Infrastructure, Public Safety, Education, Taxes, Healthcare, Environment, Economy.
       5. If the input is purely conversational (e.g., "Hello", "Thanks"), return an empty actions array.
       
       Return valid JSON.
@@ -256,7 +282,7 @@ async function processUserMessage(userInput, platformUserId, messageHash) {
             "id": number (only for matches),
             "issue": string (summarized text, only for new_issue),
             "question": string (summarized text, only for new_question),
-            "category": "Infrastructure" | "Public Safety" | "Education" | "Taxes" | "Healthcare" | "Environment" (only for new_issue)
+            "category": "Infrastructure" | "Public Safety" | "Education" | "Taxes" | "Healthcare" | "Environment" | "Economy" (only for new_issue)
           }
         ]
       }
@@ -372,11 +398,105 @@ async function queueNotification(platform, userId, message) {
       await discordUser.send(message);
     } else if (platform === 'instagram') {
       await sendInstagramMessage(userId, message);
+    } else if (platform === 'email') {
+      try {
+        await mailTransporter.sendMail({
+          from: process.env.EMAIL_USER,
+          to: userId, // userId is the email address here
+          subject: 'Update from Rep. Nobis',
+          text: message
+        });
+      } catch (e) { console.error("Email send failed", e); }
     }
   });
   
   processNotificationQueue();
 }
+
+// --- NEW: EMAIL INGESTION WORKER ---
+let lastProcessedUID = null;
+
+// --- NEW: SAFER EMAIL INGESTION WORKER (FIXED HEADERS) ---
+async function checkEmails() {
+  if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) return;
+
+  try {
+    const connection = await imap.connect(emailConfig);
+    await connection.openBox('INBOX');
+
+    // --- STEP 1: INITIALIZATION ---
+    if (lastProcessedUID === null) {
+      const fetchOptions = { bodies: ['HEADER'] };
+      const allMessages = await connection.search(['ALL'], fetchOptions);
+
+      if (allMessages.length > 0) {
+        const lastMessage = allMessages[allMessages.length - 1];
+        lastProcessedUID = lastMessage.attributes.uid;
+        console.log(`✉️ Mail System Initialized. Ignoring emails before UID: ${lastProcessedUID}`);
+      } else {
+        lastProcessedUID = 0; 
+      }
+      
+      connection.end();
+      return; 
+    }
+
+    // --- STEP 2: SEARCH NEW EMAILS ---
+    const nextUid = lastProcessedUID + 1;
+    const searchCriteria = [['UID', `${nextUid}:*`]];
+    
+    // CHANGE: Request the full raw message (body: '') instead of parts
+    const fetchOptions = { bodies: [''], markSeen: false }; 
+
+    const messages = await connection.search(searchCriteria, fetchOptions);
+
+    for (const item of messages) {
+      const uid = item.attributes.uid;
+      if (uid <= lastProcessedUID) continue;
+
+      // CHANGE: Retrieve the full raw source from the response parts
+      const allParts = item.parts.find(p => p.which === '');
+      const fullEmailSource = allParts ? allParts.body : '';
+
+      // Now pass the complete source to the parser
+      const parsed = await simpleParser(fullEmailSource);
+      
+      const fromAddress = parsed.from?.value[0]?.address;
+      const emailBody = parsed.text || "No text content found.";
+
+      // 2. Safety Check: If we still can't find the sender, skip it
+      if (!fromAddress) {
+        console.log(`⚠️ Skipping email (UID: ${uid}) - Could not determine sender.`);
+        lastProcessedUID = uid;
+        continue;
+      }
+
+      console.log(`Processing NEW email from ${fromAddress} (UID: ${uid})`);
+
+      // 3. Process
+      const spamCheck = await checkSpam(fromAddress, 'email', emailBody);
+      
+      if (!spamCheck.allowed) {
+        await queueNotification('email', fromAddress, `⚠️ ${spamCheck.reason}`);
+      } else {
+        const messageHash = crypto.createHash('sha256').update(emailBody.trim().toLowerCase()).digest('hex');
+        const summary = await processUserMessage(emailBody, fromAddress, messageHash);
+        
+        console.log(`🤖 AI Analysis Complete: "${summary.replace(/\n/g, ' ')}"`);
+        await queueNotification('email', fromAddress, `✅ **Received.**\n${summary}`);
+      }
+
+      lastProcessedUID = uid;
+    }
+
+    connection.end();
+  } catch (err) {
+    console.error("Email Fetch Error:", err);
+  }
+}
+
+// Check emails every 60 seconds
+setInterval(checkEmails, 60 * 1000);
 
 // --- INSTAGRAM HELPER ---
 async function sendInstagramMessage(recipientId, text) {

@@ -533,6 +533,26 @@ app.post('/api/instagram/webhook', async (req, res) => {
   }
 });
 
+// --- INSTAGRAM WEBHOOK VERIFICATION ---
+app.get('/api/instagram/webhook', (req, res) => {
+  // You will need to add INSTAGRAM_VERIFY_TOKEN to your .env file
+  // Make it a random string (e.g., "my_super_secret_verify_token")
+  const VERIFY_TOKEN = process.env.INSTAGRAM_VERIFY_TOKEN; 
+
+  const mode = req.query['hub.mode'];
+  const token = req.query['hub.verify_token'];
+  const challenge = req.query['hub.challenge'];
+
+  if (mode && token) {
+    if (mode === 'subscribe' && token === VERIFY_TOKEN) {
+      console.log('✅ Instagram Webhook Verified!');
+      res.status(200).send(challenge);
+    } else {
+      res.sendStatus(403);
+    }
+  }
+});
+
 // --- DISCORD BOT ---
 const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.DirectMessages, GatewayIntentBits.MessageContent],

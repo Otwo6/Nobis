@@ -23,6 +23,7 @@ if (!process.env.ENCRYPTION_KEY || process.env.ENCRYPTION_KEY.length !== 64) {
 }
 
 const app = express();
+app.set('trust proxy', 1);
 app.use(cors({
   origin: process.env.FRONTEND_URL || 'http://localhost:3000',
   credentials: true // Required for cookies
@@ -146,7 +147,10 @@ const aiActionSchema = z.object({
     id: z.number().optional(),
     question: z.string().max(500).optional(),
     issue: z.string().max(500).optional(),
-    category: z.enum(['Infrastructure', 'Public Safety', 'Education', 'Taxes', 'Healthcare', 'Environment', 'Economy']).optional()
+    // If the AI provides an invalid category, it will now default to 'Infrastructure' instead of crashing
+    category: z.enum(['Infrastructure', 'Public Safety', 'Education', 'Taxes', 'Healthcare', 'Environment', 'Economy'])
+      .catch('Infrastructure') 
+      .optional()
   }))
 });
 
@@ -420,8 +424,10 @@ let lastProcessedUID = null;
 async function checkEmails() {
   if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) return;
 
+  let connection; // <-- Define connection OUTSIDE the try block
+
   try {
-    const connection = await imap.connect(emailConfig);
+    connection = await imap.connect(emailConfig);
     await connection.openBox('INBOX');
 
     // --- STEP 1: INITIALIZATION ---
@@ -437,8 +443,7 @@ async function checkEmails() {
         lastProcessedUID = 0; 
       }
       
-      connection.end();
-      return; 
+      return; // <-- Removed connection.end() from here
     }
 
     // --- STEP 2: SEARCH NEW EMAILS ---
@@ -489,9 +494,14 @@ async function checkEmails() {
       lastProcessedUID = uid;
     }
 
-    connection.end();
   } catch (err) {
     console.error("Email Fetch Error:", err);
+  } finally {
+    // --- THIS IS THE CRITICAL FIX ---
+    // The finally block runs no matter what, even if an error crashes the try block.
+    if (connection) {
+      connection.end();
+    }
   }
 }
 
@@ -573,6 +583,16 @@ client.on('messageCreate', async (message) => {
   } catch (error) { 
     await message.reply("❌ Error processing request."); 
   }
+});
+
+// --- DISCORD ERROR HANDLING ---
+// This prevents the bot from crashing the entire app if it temporarily loses internet
+client.on('error', (error) => {
+  console.error('Discord Client Error:', error.message);
+});
+
+client.on('shardError', (error) => {
+  console.error('Discord WebSocket connection error:', error.message);
 });
 
 // --- API ROUTES ---

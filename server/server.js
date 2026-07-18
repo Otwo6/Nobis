@@ -81,6 +81,15 @@ const apiLimiter = rateLimit({
 
 app.use('/api/', apiLimiter);
 
+// --- OTP STORAGE ---
+// Maps email -> { code: string, expiresAt: number }
+const pendingVerifications = new Map();
+
+// Helper to generate a 6-digit code
+function generateOTP() {
+  return Math.floor(100000 + Math.random() * 900000).toString();
+}
+
 // --- DATABASE SETUP ---
 const pool = mysql.createPool({
   host: process.env.DB_HOST || 'localhost',
@@ -125,11 +134,6 @@ function clearFailedLogins(username) {
 }
 
 // --- AI OUTPUT VALIDATION ---
-// NOTE: the original file declared this schema twice with `const` (once here,
-// once again after app.listen) — that's a duplicate top-level `const`, which
-// is a SyntaxError in JS and would have crashed on startup. Kept the more
-// defensive of the two versions below (falls back to 'Infrastructure'
-// instead of throwing if the model returns a bad category).
 const aiActionSchema = z.object({
   actions: z.array(z.object({
     type: z.enum(['match_issue', 'new_issue', 'match_question', 'new_question']),
@@ -383,7 +387,7 @@ async function queueNotification(platform, userId, message) {
       await discordUser.send(message);
     } else if (platform === 'instagram') {
       await instagramBot.sendInstagramMessage(userId, message);
-    } else if (platform === 'email') {
+    } else if (platform === 'email' || platform === 'web') {
       await emailBot.sendEmail(userId, 'Update from Rep. Nobis', message); // userId is the email address here
     }
   });
@@ -440,14 +444,32 @@ app.post('/api/resolve-issue', authenticateToken, async (req, res) => {
 
     const message = `📢 Nobis Update: An issue you reported has been ${actionType}.\n\nReason: ${reason}`;
 
+    let successfulNotifications = 0;
+    let failedDecryptions = 0;
+
     // Queue notifications asynchronously
     for (const user of constituents) {
-      const decryptedUserId = decrypt(user.platform_user_id_encrypted);
-      queueNotification(user.platform, decryptedUserId, message);
+      try {
+        // Attempt to decrypt. If this fails, it jumps to the inner catch block
+        const decryptedUserId = decrypt(user.platform_user_id_encrypted);
+        queueNotification(user.platform, decryptedUserId, message);
+        successfulNotifications++;
+      } catch (decryptError) {
+        // Log the error but DO NOT crash the loop
+        console.error(`⚠️ Skipping constituent: Decryption failed for platform ${user.platform}.`, decryptError.message);
+        failedDecryptions++;
+        continue; // Move on to the next user in the queue
+      }
     }
 
-    res.json({ success: true, notifiedCount: constituents.length });
+    res.json({ 
+      success: true, 
+      notifiedCount: successfulNotifications,
+      failedCount: failedDecryptions 
+    });
   } catch (e) {
+    // This catches database errors or larger route failures
+    console.error("Resolve Issue Error:", e);
     res.status(500).json({ error: e.message });
   }
 });
@@ -468,15 +490,91 @@ app.post('/api/answer', authenticateToken, async (req, res) => {
 
     const notifyMessage = `📝 **Question Answered!**\n\n**Q:** "${questionText}"\n**Reply:** ${answer}`;
 
-    // Queue notifications asynchronously
+    let successfulNotifications = 0;
+    let failedDecryptions = 0;
+
+    // Queue notifications asynchronously (NOW WITH TRY/CATCH)
     for (const user of constituents) {
-      const decryptedUserId = decrypt(user.platform_user_id_encrypted);
-      queueNotification(user.platform, decryptedUserId, notifyMessage);
+      try {
+        const decryptedUserId = decrypt(user.platform_user_id_encrypted);
+        queueNotification(user.platform, decryptedUserId, notifyMessage);
+        successfulNotifications++;
+      } catch (decryptError) {
+        console.error(`⚠️ Skipping constituent: Decryption failed for platform ${user.platform}.`, decryptError.message);
+        failedDecryptions++;
+        continue;
+      }
     }
 
-    res.json({ success: true, notifiedCount: constituents.length });
+    res.json({ 
+      success: true, 
+      notifiedCount: successfulNotifications,
+      failedCount: failedDecryptions
+    });
   } catch (e) {
+    console.error("Answer Route Error:", e);
     res.status(500).json({ error: e.message });
+  }
+});
+
+// --- 1. SEND VERIFICATION CODE ---
+app.post('/api/send-otp', apiLimiter, async (req, res) => {
+  const { email } = req.body;
+  if (!email) return res.status(400).json({ error: 'Email is required' });
+
+  const code = generateOTP();
+  
+  // Store code for 10 minutes
+  pendingVerifications.set(email.toLowerCase(), {
+    code,
+    expiresAt: Date.now() + 10 * 60 * 1000 
+  });
+
+  try {
+    // Re-use your emailBot to send the code
+    const message = `Your verification code for Rep. Nobis is: ${code}\n\nThis code expires in 10 minutes.`;
+    await emailBot.sendEmail(email, 'Your Verification Code', message);
+    
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to send verification email.' });
+  }
+});
+
+// --- 2. VERIFY AND PROCESS MESSAGE (Updated) ---
+app.post('/api/web-message', apiLimiter, async (req, res) => {
+  const { email, message, otp } = req.body;
+
+  if (!email || !message || !otp) {
+    return res.status(400).json({ error: 'Email, message, and verification code are required.' });
+  }
+
+  const normalizedEmail = email.toLowerCase();
+  const record = pendingVerifications.get(normalizedEmail);
+
+  // Validate OTP
+  if (!record || record.code !== otp || Date.now() > record.expiresAt) {
+    return res.status(401).json({ error: 'Invalid or expired verification code.' });
+  }
+
+  try {
+    // 1. Run through your existing anti-spam check
+    const spamCheck = await checkSpam(normalizedEmail, 'web', message);
+    if (!spamCheck.allowed) {
+      return res.status(429).json({ error: spamCheck.reason });
+    }
+
+    // 2. Hash message and process via AI pipeline
+    const messageHash = crypto.createHash('sha256').update(message.trim().toLowerCase()).digest('hex');
+    const summaryLog = await processUserMessage(message, normalizedEmail, messageHash);
+
+    // 3. Clear the OTP so it can't be reused
+    pendingVerifications.delete(normalizedEmail);
+
+    res.json({ success: true, summary: summaryLog });
+  } catch (error) {
+    console.error("Web Message Error:", error);
+    res.status(500).json({ error: 'Failed to process message. Please try again later.' });
   }
 });
 

@@ -12,7 +12,10 @@ import {
   HelpCircle,
   CheckCircle,
   CheckCircle2,
-  Circle
+  Circle,
+  MessageCircle, 
+  Send,         
+  X             
 } from 'lucide-react';
 
 const Nobis = () => {
@@ -20,6 +23,18 @@ const Nobis = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [loginPassword, setLoginPassword] = useState('');
+
+  // --- CONTACT MODAL STATE ---
+  const [showContactModal, setShowContactModal] = useState(false);
+  const [contactEmail, setContactEmail] = useState('');
+  const [contactMessage, setContactMessage] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitStatus, setSubmitStatus] = useState(null); // { type: 'success' | 'error', text: '' }
+  
+  // New OTP State Variables
+  const [otp, setOtp] = useState('');
+  const [showOtpInput, setShowOtpInput] = useState(false);
+  const [isSendingCode, setIsSendingCode] = useState(false);
 
   // --- DISPLAY CONTROLS (Issues) ---
   const [selectedCategory, setSelectedCategory] = useState('All');
@@ -38,7 +53,6 @@ const Nobis = () => {
   const [topIssues, setTopIssues] = useState([]);
   const [questions, setQuestions] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
-  // Added dummy pending issues state to prevent crash since it was referenced in original logic
   const [pendingIssues, setPendingIssues] = useState([]); 
 
   // --- ADMIN EDITING STATE ---
@@ -50,7 +64,7 @@ const Nobis = () => {
     setIsLoading(true);
     try {
       const res = await fetch('http://localhost:3005/api/data', {
-        credentials: 'include' // Include cookies
+        credentials: 'include'
       });
       if (!res.ok) throw new Error('Failed to fetch data');
       
@@ -59,23 +73,8 @@ const Nobis = () => {
       setQuestions(data.questions || []);
     } catch (e) {
       console.error("Connection Error:", e);
-      // Fallback data for visualization if server is down (Removed for production, kept for safety in demo)
     } finally {
       setIsLoading(false);
-    }
-  };
-
-  const fetchPendingIssues = async () => {
-    if (!isAuthenticated) return;
-    try {
-      const res = await fetch('http://localhost:3005/api/admin/pending-issues', {
-        credentials: 'include'
-      });
-      if (!res.ok) throw new Error('Failed to fetch pending issues');
-      const data = await res.json();
-      setPendingIssues(data.issues || []);
-    } catch (e) {
-      console.error("Error fetching pending issues:", e);
     }
   };
 
@@ -107,7 +106,6 @@ const Nobis = () => {
     return isViewAll ? filtered : filtered.slice(0, displayLimit);
   }, [topIssues, selectedCategory, displayLimit, isViewAll, searchQuery]);
 
-  // --- COMPUTED DATA (Questions) ---
   const visibleQuestions = useMemo(() => {
     let filtered = [...questions]; 
     if (answerStatusFilter === 'Answered') {
@@ -128,18 +126,88 @@ const Nobis = () => {
     return isViewAllQuestions ? filtered : filtered.slice(0, questionLimit);
   }, [questions, answerStatusFilter, questionLimit, isViewAllQuestions, searchQuery]);
 
-  // --- LOGIN LOGIC (using cookies) ---
+  // --- WEB SUBMISSION LOGIC ---
+  const handleContactSubmit = async (e) => {
+    e.preventDefault();
+    setSubmitStatus(null);
+
+    // Phase 1: Request OTP
+    if (!showOtpInput) {
+      setIsSendingCode(true);
+      try {
+        const res = await fetch('http://localhost:3005/api/send-otp', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: contactEmail })
+        });
+        
+        const data = await res.json();
+        
+        if (res.ok) {
+          setShowOtpInput(true);
+          setSubmitStatus({ type: 'success', text: "Verification code sent to your email." });
+        } else {
+          setSubmitStatus({ type: 'error', text: data.error || "Failed to send code." });
+        }
+      } catch (err) {
+        setSubmitStatus({ type: 'error', text: "Cannot connect to server. Please try again." });
+      } finally {
+        setIsSendingCode(false);
+      }
+      return;
+    }
+
+    // Phase 2: Submit Message with OTP
+    setIsSubmitting(true);
+    try {
+      const res = await fetch('http://localhost:3005/api/web-message', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          email: contactEmail, 
+          message: contactMessage, 
+          otp 
+        })
+      });
+
+      const data = await res.json();
+
+      if (res.ok) {
+        setSubmitStatus({ type: 'success', text: "Your message has been securely submitted to the Representative's office." });
+        // Reset form completely upon success
+        setContactMessage(''); 
+        setContactEmail('');
+        setOtp('');
+        setShowOtpInput(false);
+        fetchData(); 
+      } else {
+        setSubmitStatus({ type: 'error', text: data.error || "Verification failed." });
+      }
+    } catch (err) {
+      setSubmitStatus({ type: 'error', text: "Cannot connect to server. Please try again." });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleCloseModal = () => {
+    setShowContactModal(false);
+    setSubmitStatus(null);
+    setShowOtpInput(false);
+    setOtp('');
+  };
+
+  // --- LOGIN/LOGOUT & ADMIN ACTIONS ---
   const handleLogin = async () => {
     try {
       const response = await fetch('http://localhost:3005/api/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        credentials: 'include', // Include cookies
+        credentials: 'include',
         body: JSON.stringify({ username: 'admin', password: loginPassword })
       });
 
       const data = await response.json();
-
       if (data.success) {
         setIsAuthenticated(true);
         setShowLoginModal(false);
@@ -154,18 +222,13 @@ const Nobis = () => {
 
   const handleLogout = async () => {
     try {
-      await fetch('http://localhost:3005/api/logout', {
-        method: 'POST',
-        credentials: 'include'
-      });
+      await fetch('http://localhost:3005/api/logout', { method: 'POST', credentials: 'include' });
       setIsAuthenticated(false);
-      setPendingIssues([]);
     } catch (error) {
       console.error("Logout failed:", error);
     }
   };
 
-  // --- ADMIN Q&A LOGIC ---
   const handleAnswerQuestion = async (questionId) => {
     try {
       await fetch('http://localhost:3005/api/answer', {
@@ -174,13 +237,10 @@ const Nobis = () => {
         credentials: 'include',
         body: JSON.stringify({ id: questionId, answer: answerText })
       });
-
       setEditingQuestion(null);
       setAnswerText('');
       await fetchData();
-      
     } catch (error) {
-      console.error("Failed to save answer", error);
       alert("Failed to save answer. Check server connection.");
     }
   };
@@ -196,7 +256,6 @@ const Nobis = () => {
         credentials: 'include',
         body: JSON.stringify({ issueId, reason, actionType })
       });
-      
       if (res.ok) {
         alert(`Issue ${actionType} and constituents notified!`);
         await fetchData(); 
@@ -206,21 +265,14 @@ const Nobis = () => {
     }
   };
 
-  useEffect(() => {
-    setIsViewAll(false);
-  }, [selectedCategory, displayLimit]);
-
-  useEffect(() => {
-    setIsViewAllQuestions(false);
-  }, [answerStatusFilter, questionLimit]);
+  useEffect(() => setIsViewAll(false), [selectedCategory, displayLimit]);
+  useEffect(() => setIsViewAllQuestions(false), [answerStatusFilter, questionLimit]);
 
   return (
-    <div className="min-h-screen bg-[#FDFBF7] font-sans text-slate-800">
+    <div className="min-h-screen bg-[#FDFBF7] font-sans text-slate-800 relative">
       
       {/* --- HEADER SECTION --- */}
       <header className="shadow-lg relative z-20">
-        
-        {/* 1. TOP BAR: IDENTITY (Dark Blue) */}
         <div className="bg-[#0d274c] text-white">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 flex justify-between items-center">
             <div className="flex items-center gap-4">
@@ -260,10 +312,8 @@ const Nobis = () => {
           </div>
         </div>
 
-        {/* 2. GOLDEN SEPARATOR BAR */}
         <div className="h-2 w-full bg-[#C5A045] relative z-30 shadow-sm"></div>
 
-        {/* 3. SEARCH AREA */}
         <div className="bg-[#06183c] border-b border-gray-200">
             <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-5">
                 <div className="flex flex-col md:flex-row gap-4 items-center justify-between">
@@ -290,10 +340,107 @@ const Nobis = () => {
                 </div>
             </div>
         </div>
-
       </header>
 
-      {/* --- LOGIN MODAL (Unchanged functionality, styling matched) --- */}
+      {/* --- CONTACT MODAL --- */}
+      {showContactModal && (
+        <div className="fixed inset-0 bg-[#0F1F3D]/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-[#FDFBF7] rounded-xl shadow-2xl p-8 w-full max-w-[500px] border-4 border-[#C5A045] relative">
+            
+            <button 
+              onClick={handleCloseModal}
+              className="absolute top-4 right-4 text-gray-400 hover:text-gray-700"
+            >
+              <X className="w-6 h-6" />
+            </button>
+
+            <div className="flex flex-col items-center mb-6">
+              <div className="p-3 bg-[#0F1F3D] rounded-full mb-4 shadow-lg">
+                <MessageCircle className="w-6 h-6 text-white" />
+              </div>
+              <h3 className="text-xl font-serif font-bold text-[#0F1F3D]">Write to Rep. Nobis</h3>
+              <p className="text-sm text-gray-500 text-center mt-2">
+                Share an issue or ask a question. Our AI system will categorize it for the Representative to review.
+              </p>
+            </div>
+            
+            <form onSubmit={handleContactSubmit} className="space-y-4">
+              
+              {!showOtpInput ? (
+                // Original Email and Message Form
+                <>
+                  <div>
+                    <label className="block text-xs font-bold text-gray-500 uppercase tracking-widest mb-1">Email Address</label>
+                    <input 
+                      type="email" 
+                      required
+                      placeholder="citizen@example.com" 
+                      className="w-full border-2 border-gray-200 bg-white rounded p-3 focus:border-[#0F1F3D] outline-none transition-all font-sans"
+                      value={contactEmail}
+                      onChange={e => setContactEmail(e.target.value)}
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-gray-500 uppercase tracking-widest mb-1">Your Message</label>
+                    <textarea 
+                      required
+                      placeholder="I'm concerned about..." 
+                      rows={4}
+                      className="w-full border-2 border-gray-200 bg-white rounded p-3 focus:border-[#0F1F3D] outline-none transition-all font-sans resize-none"
+                      value={contactMessage}
+                      onChange={e => setContactMessage(e.target.value)}
+                    />
+                  </div>
+                </>
+              ) : (
+                // OTP Input Form
+                <div className="mb-6">
+                  <label className="block text-xs font-bold text-gray-500 uppercase tracking-widest mb-1 text-center">Enter 6-Digit Code</label>
+                  <p className="text-xs text-gray-500 mb-4 text-center">
+                    Please enter the verification code sent to <strong>{contactEmail}</strong>
+                  </p>
+                  <input 
+                    type="text" 
+                    required
+                    placeholder="123456" 
+                    maxLength={6}
+                    className="w-full border-2 border-gray-200 bg-white rounded p-4 focus:border-[#0F1F3D] outline-none transition-all font-sans text-center tracking-[0.5em] text-2xl font-bold"
+                    value={otp}
+                    onChange={e => setOtp(e.target.value.replace(/\D/g, ''))} // only allow numbers
+                  />
+                </div>
+              )}
+
+              {submitStatus && (
+                <div className={`p-3 text-sm rounded border ${submitStatus.type === 'success' ? 'bg-green-50 text-green-800 border-green-200' : 'bg-red-50 text-red-800 border-red-200'}`}>
+                  {submitStatus.text}
+                </div>
+              )}
+              
+              <div className="pt-2">
+                <button 
+                  type="submit"
+                  disabled={isSubmitting || isSendingCode}
+                  className="w-full bg-[#0F1F3D] text-white py-3 rounded font-bold uppercase tracking-wider hover:bg-[#1a2e55] transition-colors shadow-lg flex justify-center items-center gap-2 disabled:opacity-70"
+                >
+                  {isSendingCode ? 'Sending Code...' : isSubmitting ? 'Submitting...' : !showOtpInput ? (
+                    <>
+                      Send Message <Send className="w-4 h-4" />
+                    </>
+                  ) : (
+                    <>
+                      Verify & Submit <CheckCircle2 className="w-4 h-4" />
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* --- LOGIN MODAL --- */}
       {showLoginModal && (
         <div className="fixed inset-0 bg-[#0F1F3D]/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-[#FDFBF7] rounded-xl shadow-2xl p-8 w-full max-w-[400px] border-4 border-[#C5A045]">
@@ -336,15 +483,25 @@ const Nobis = () => {
         </div>
       )}
 
+      {/* --- FLOATING ACTION BUTTON --- */}
+      {!showContactModal && !isAuthenticated && (
+        <button
+          onClick={() => setShowContactModal(true)}
+          className="fixed bottom-8 right-8 bg-[#0F1F3D] text-white p-4 rounded-full shadow-2xl hover:bg-[#1a2e55] hover:scale-105 transition-all flex items-center justify-center z-40 border-2 border-[#C5A045] group"
+        >
+          <MessageCircle className="w-6 h-6" />
+          <span className="max-w-0 overflow-hidden whitespace-nowrap group-hover:max-w-xs transition-all duration-300 ease-in-out font-bold uppercase text-sm tracking-wider group-hover:ml-3">
+            Contact Rep
+          </span>
+        </button>
+      )}
+
       {/* --- MAIN CONTENT --- */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-
         <div className="grid md:grid-cols-2 gap-8">
           
-          {/* --- LEFT: ISSUES LIST (Matches "Legislative Priorities" Card) --- */}
+          {/* --- LEFT: ISSUES LIST --- */}
           <div className="bg-white rounded-xl shadow-md border border-gray-200 overflow-hidden h-fit">
-            
-            {/* Card Header */}
             <div className="p-6 pb-2">
                 <div className="flex flex-col gap-4">
                     <div className="flex items-center gap-2">
@@ -352,7 +509,6 @@ const Nobis = () => {
                         <h2 className="text-xl font-serif font-bold text-[#0F1F3D]">Legislative Priorities & Progress</h2>
                     </div>
                     
-                    {/* Filters */}
                     <div className="flex gap-2">
                         <div className="relative flex-1">
                             <Filter className="absolute left-3 top-2.5 w-4 h-4 text-[#8a7f6b]" />
@@ -379,19 +535,15 @@ const Nobis = () => {
                 </div>
             </div>
 
-            {/* List */}
             <div className="p-4 space-y-3">
               {visibleIssues.length > 0 ? (
                 visibleIssues.map((issue) => (
                   <div key={issue.id} className="bg-white p-4 border border-[#E5E0D0] rounded-lg hover:shadow-md transition-shadow">
                     <div className="flex gap-4">
-                        {/* Vote Counter */}
                         <div className="flex flex-col items-center justify-center min-w-[3rem]">
                             <span className="text-xl font-serif font-bold text-[#0F1F3D] leading-none">{issue.count}</span>
                             <span className="text-[10px] text-gray-400 uppercase tracking-wide mt-1">Votes</span>
                         </div>
-
-                        {/* Content */}
                         <div className="flex-1">
                             <div className="mb-1">
                                 <span className="inline-block bg-[#0F1F3D] text-white text-[10px] font-bold px-2 py-0.5 rounded-full mb-1">
@@ -399,8 +551,6 @@ const Nobis = () => {
                                 </span>
                                 <h3 className="font-serif font-bold text-gray-900 leading-tight">{issue.issue}</h3>
                             </div>
-
-                            {/* Admin Controls */}
                             {isAuthenticated && (
                                 <div className="flex gap-3 mt-3 pt-2 border-t border-gray-100">
                                     <button 
@@ -440,17 +590,13 @@ const Nobis = () => {
 
           {/* --- RIGHT: QUESTIONS LIST --- */}
           <div className="bg-white rounded-xl shadow-md border border-gray-200 overflow-hidden h-fit">
-            {/* Card Header with Logic Filters */}
             <div className="p-6 pb-2 border-b border-[#E5E0D0]">
               <div className="flex flex-col gap-4">
                 <div className="flex items-center gap-2">
                   <MessageSquare className="w-5 h-5 text-[#0F1F3D]" />
                   <h2 className="text-xl font-serif font-bold text-[#0F1F3D]">Constituent Questions</h2>
                 </div>
-
-                {/* NEW FILTERS ROW */}
                 <div className="flex gap-2">
-                  {/* Answer Status Filter */}
                   <div className="relative flex-1">
                     <Filter className="absolute left-3 top-2.5 w-4 h-4 text-[#8a7f6b]" />
                     <select
@@ -463,8 +609,6 @@ const Nobis = () => {
                       <option value="Unanswered">Unanswered</option>
                     </select>
                   </div>
-
-                  {/* Question Display Limit */}
                   <div className="relative w-28">
                     <select
                       value={questionLimit}
@@ -480,12 +624,10 @@ const Nobis = () => {
               </div>
             </div>
 
-            {/* Question List Area */}
             <div className="p-6 space-y-6 bg-[#FDFBF7] min-h-[400px]">
               {visibleQuestions.length > 0 ? (
                 visibleQuestions.map((q) => (
                   <div key={q.id} className="bg-[#F9F7F1] border border-[#E5E0D0] rounded-xl p-5 shadow-sm">
-                    {/* Question Header */}
                     <div className="flex justify-between items-start mb-3">
                       <div className="flex flex-col gap-1">
                         <h3 className="font-serif font-bold text-gray-900 text-sm leading-tight">{q.question}</h3>
@@ -496,9 +638,7 @@ const Nobis = () => {
                       </span>
                     </div>
 
-                    {/* Answer Section */}
                     <div className="bg-white border border-[#E5E0D0] rounded-lg p-4 relative shadow-inner">
-                      {/* Triangle for chat bubble look */}
                       <div className="absolute -top-2 left-6 w-4 h-4 bg-white border-t border-l border-[#E5E0D0] transform rotate-45"></div>
 
                       {q.answered ? (
@@ -513,7 +653,6 @@ const Nobis = () => {
                         </div>
                       )}
 
-                      {/* Admin Controls - Only visible if logged in */}
                       {isAuthenticated && (
                         <div className="mt-3 pt-2 border-t border-gray-100">
                           {editingQuestion === q.id ? (
@@ -554,7 +693,6 @@ const Nobis = () => {
               )}
             </div>
 
-            {/* Footer Toggle */}
             <div className="bg-[#FDFBF7] p-3 text-center border-t border-[#E5E0D0]">
               <button
                 onClick={() => setIsViewAllQuestions(!isViewAllQuestions)}
